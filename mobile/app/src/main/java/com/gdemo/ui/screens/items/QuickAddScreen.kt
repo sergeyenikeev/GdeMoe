@@ -1,6 +1,5 @@
 package com.gdemo.ui.screens.items
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,10 +9,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -34,6 +37,7 @@ import com.gdemo.data.model.LocationDto
 import com.gdemo.data.remote.ApiClient
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = {}) {
     val context = LocalContext.current
@@ -44,6 +48,8 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
     var selectedLocation by remember { mutableStateOf<LocationDto?>(null) }
     var message by remember { mutableStateOf("") }
     var saveAndNext by remember { mutableStateOf(false) }
+    var showPicker by remember { mutableStateOf(false) }
+    var search by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val api = remember(baseUrl) { ApiClient.create(ApiClient.sanitizeBaseUrl(baseUrl)) }
 
@@ -94,15 +100,7 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                     label = { Text("Название вещи") }
                 )
                 OutlinedButton(
-                    onClick = {
-                        if (locations.isEmpty()) return@OutlinedButton
-                        // toggle first location if nothing picked
-                        selectedLocation = if (selectedLocation == null && locations.isNotEmpty()) {
-                            locations.first()
-                        } else {
-                            locations.dropWhile { it.id != selectedLocation?.id }.getOrNull(1) ?: locations.first()
-                        }
-                    },
+                    onClick = { showPicker = true },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(selectedLocation?.path ?: "Выбрать локацию")
@@ -119,6 +117,36 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                 if (message.isNotBlank()) {
                     Text(message, style = MaterialTheme.typography.bodySmall)
                 }
+            }
+        }
+    }
+    if (showPicker) {
+        val filtered = locations.filter {
+            search.isBlank() || it.name.contains(search, true) || (it.path?.contains(search, true) == true)
+        }
+        ModalBottomSheet(onDismissRequest = { showPicker = false }) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Выберите локацию", style = MaterialTheme.typography.titleMedium)
+                OutlinedTextField(
+                    value = search,
+                    onValueChange = { search = it },
+                    label = { Text("Поиск по названию/пути") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                filtered.forEach { loc ->
+                    ListItem(
+                        headlineContent = { Text(loc.path ?: loc.name) },
+                        supportingContent = { Text(loc.kind ?: "") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selectedLocation = loc
+                                showPicker = false
+                            }
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
             }
         }
     }

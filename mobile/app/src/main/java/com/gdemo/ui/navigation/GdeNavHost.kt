@@ -193,7 +193,12 @@ fun GdeNavHost(isOnboarded: Boolean, onFinishOnboarding: () -> Unit, sharedConte
             }
             composable(Destinations.AiReview.route) {
                 val vm = remember(stored.baseUrl) { AiReviewViewModel(stored.baseUrl) }
-                AiReviewScreen(paddingValues = padding, viewModel = vm)
+                AiReviewScreen(
+                    paddingValues = padding,
+                    viewModel = vm,
+                    baseUrl = stored.baseUrl,
+                    onOpenItem = { id -> navController.navigate("${Destinations.ItemDetails.route}/$id") }
+                )
             }
             composable(Destinations.Settings.route) {
                 SettingsScreen(padding)

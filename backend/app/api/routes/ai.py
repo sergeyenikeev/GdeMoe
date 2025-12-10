@@ -42,14 +42,8 @@ async def request_analysis(payload: AITaskRequest, db: AsyncSession = Depends(ge
                 )
             except Exception as exc:  # noqa: BLE001
                 raise HTTPException(status_code=502, detail=f"AI service unavailable: {exc}") from exc
-        return {
-            "id": detection.id,
-            "media_id": detection.media_id,
-            "status": detection.status,
-            "created_at": detection.created_at,
-            "completed_at": detection.completed_at,
-            "objects": [],
-        }
+        loaded = await _load_detection(db, detection.id)
+        return loaded
 
     # Local pipeline (YOLO + CLIP)
     try:
@@ -61,27 +55,7 @@ async def request_analysis(payload: AITaskRequest, db: AsyncSession = Depends(ge
         ) from exc
 
     # Reload with objects eager-loaded to avoid async lazy-load issues
-    result = await db.execute(
-        select(AIDetection).options(selectinload(AIDetection.objects)).where(AIDetection.id == detection.id)
-    )
-    detection_with_objects = result.scalar_one()
-    objects_out = [
-        AIDetectionObjectOut(
-            label=obj.label,
-            confidence=float(obj.confidence),
-            bbox=obj.bbox,
-            candidates=[],
-        )
-        for obj in detection_with_objects.objects
-    ]
-    return {
-        "id": detection_with_objects.id,
-        "media_id": detection_with_objects.media_id,
-        "status": detection_with_objects.status,
-        "created_at": detection_with_objects.created_at,
-        "completed_at": detection_with_objects.completed_at,
-        "objects": [obj.model_dump() for obj in objects_out],
-    }
+    return await _load_detection(db, detection.id)
 
 
 @router.post("/analyze_video")
@@ -99,7 +73,10 @@ async def list_detections(
     result = await db.execute(
         select(AIDetection)
         .where(AIDetection.status == status)
-        .options(selectinload(AIDetection.objects).selectinload(AIDetectionObject.candidates))
+        .options(
+            selectinload(AIDetection.media),
+            selectinload(AIDetection.objects).selectinload(AIDetectionObject.candidates),
+        )
     )
     detections = result.scalars().unique().all()
     out: list[AIDetectionOut] = []
@@ -111,6 +88,8 @@ async def list_detections(
                 status=det.status,
                 created_at=det.created_at,
                 completed_at=det.completed_at,
+                media_path=det.media.path if det.media else None,
+                thumb_path=det.media.thumb_path if det.media else None,
                 objects=[
                     AIDetectionObjectOut(
                         id=obj.id,
@@ -204,7 +183,10 @@ async def _load_detection(db: AsyncSession, detection_id: int) -> AIDetectionOut
     result = await db.execute(
         select(AIDetection)
         .where(AIDetection.id == detection_id)
-        .options(selectinload(AIDetection.objects).selectinload(AIDetectionObject.candidates))
+        .options(
+            selectinload(AIDetection.media),
+            selectinload(AIDetection.objects).selectinload(AIDetectionObject.candidates),
+        )
     )
     det = result.scalar_one()
     return AIDetectionOut(
@@ -213,6 +195,8 @@ async def _load_detection(db: AsyncSession, detection_id: int) -> AIDetectionOut
         status=det.status,
         created_at=det.created_at,
         completed_at=det.completed_at,
+        media_path=det.media.path if det.media else None,
+        thumb_path=det.media.thumb_path if det.media else None,
         objects=[
             AIDetectionObjectOut(
                 id=obj.id,

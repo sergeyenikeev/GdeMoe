@@ -16,6 +16,8 @@ data class AiDetectionDto(
     val status: String,
     val created_at: String,
     val completed_at: String?,
+    val media_path: String?,
+    val thumb_path: String?,
     val objects: List<AiDetectionObjectDto> = emptyList()
 )
 

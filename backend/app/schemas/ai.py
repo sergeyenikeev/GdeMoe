@@ -26,6 +26,8 @@ class AIDetectionOut(BaseModel):
     status: AIDetectionStatus
     created_at: datetime
     completed_at: datetime | None = None
+    media_path: str | None = None
+    thumb_path: str | None = None
     objects: list[AIDetectionObjectOut] = Field(default_factory=list)
 
     class Config:
