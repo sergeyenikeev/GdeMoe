@@ -1,0 +1,25 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+fastapi==0.115.5
+uvicorn[standard]==0.24.0.post1
+SQLAlchemy==2.0.23
+asyncpg==0.29.0
+alembic==1.13.1
+psycopg2-binary==2.9.9
+pydantic==2.5.2
+pydantic-settings==2.1.0
+python-multipart==0.0.6
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-dotenv==1.0.0
+Pillow==10.1.0
+numpy==1.26.3
+pillow-heif==0.16.0
+opencv-python-headless==4.9.0.80
+torch==2.1.2+cpu
+torchvision==0.16.2+cpu
+open_clip_torch==2.20.0
+ultralytics==8.0.227
+email-validator==2.1.0.post1
+httpx==0.26.0
+aiofiles==23.2.1
+pypdf==3.17.0

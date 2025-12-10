@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.env
+.env.*
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+build/
+dist/
+*.egg-info/
+
+# Tooling / IDE
+.vscode/
+.idea/
+
+# Backend
+backend/.env
+backend/.env.*
+
+# Mobile / Android
+mobile/.gradle/
+mobile/.idea/
+mobile/app/build/
+mobile/app/release/
+mobile/app/debug/
+mobile/build/
+mobile/.cxx/
+mobile/tmp-gradle/
+mobile/local.properties
+mobile/hs_err_pid*.log
+mobile/gradle-*-bin.zip
+
+# OS / misc
+Thumbs.db
+.DS_Store

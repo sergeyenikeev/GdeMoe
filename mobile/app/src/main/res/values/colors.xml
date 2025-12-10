@@ -1,0 +1,5 @@
+<resources>
+    <color name="brand_primary">#1B5E20</color>
+    <color name="brand_secondary">#4CAF50</color>
+    <color name="brand_accent">#FFC107</color>
+</resources>
