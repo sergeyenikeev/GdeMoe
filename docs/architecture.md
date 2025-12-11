@@ -1,46 +1,27 @@
-# Архитектура "ГдеМоё"
+﻿# Архитектура "ГдеМоё"
 
-## Общий обзор
-- **Клиент (Android, Kotlin + Jetpack Compose, MVVM/Clean)**: оффлайн-кэш через Room, синхронизация с backend, загрузка медиа, поиск/фильтры, AI-подсказки.
-- **Backend (FastAPI + PostgreSQL + Alembic)**: REST API, авторизация JWT, управление сущностями (пользователи, карточки, теги, группы, местоположения, медиа, логи, задачи), интеграция с AI-модулем, файловое хранилище NAS.
-- **Хранилище данных**: PostgreSQL (структурированные данные), NAS (файлы медиа и экспорта/импорта), кэш Redis (опционально).
-- **AI-модуль**: отдельный сервис/процесс, получающий ссылки на медиа, возвращающий распознанные объекты и кандидаты сопоставления. Взаимодействие через REST/Webhook очередь задач.
-- **NAS (Terramaster F2-212)**: Docker-контейнеры FastAPI, PostgreSQL, (опционально Redis и AI-модуль); каталоги для медиа и резервных копий БД.
+## Состав
+- **Мобильное приложение (Android, Kotlin, Jetpack Compose, MVVM/Clean)**: работа офлайн/онлайн, Room-кэш, интеграция с backend, загрузка медиа, AI-инбокс.
+- **Backend (FastAPI + PostgreSQL + Alembic)**: REST API, JWT, CRUD вещей/локаций/тегов/медиа, AI-интеграция, хранение на NAS.
+- **Хранилище**: PostgreSQL; NAS/S3-совместимое хранилище для медиа; опционально Redis для кешей/очередей.
+- **AI-пайплайн**: YOLO/CLIP (локально или внешний сервис) для детекции/классификации.
+- **Docker**: сервисы api/db (и опционально redis/ai) в docker-compose.
 
 ## Потоки данных
-1) Клиент → Backend: авторизация, CRUD карточек, загрузка медиа (presigned URL/проксирование), поиск и фильтрация.
-2) Backend → NAS: сохранение файлов в структурированном каталоге (`/data/gdemo/media/{workspace}/{user}/{card_id}/...`).
-3) Backend → AI: отправка задачи анализа с путём к медиа, получение результата (объекты, вероятности, предложения карточек/мест).
-4) AI → Backend: callback/получение результата; создание/обновление карточек со статусом «Надо проверить».
-5) Клиент → Backend → DB: выборка дерева местоположений, карточек, истории изменений, задач, групп, тегов.
+1) Mobile → Backend: аутентификация, CRUD, загрузка медиа (presigned или прямой upload), запуск AI анализа.
+2) Backend → NAS: сохранение оригинала и превью /data/gdemo/media/{workspace}/{user}/{item}/....
+3) Backend ↔ AI: запрос на анализ (/ai/analyze), callback/чтение результатов, логирование решений пользователя.
+4) Backend ↔ DB: транзакции через SQLAlchemy/Alembic, миграции версионируются.
 
-## Слои backend
-- **API слой**: FastAPI routers (auth, users, cards, locations, media, groups, tags, todos, ai, search).
-- **Сервисный слой**: бизнес-логика (работа с карточками, группами, правами, медиапотоками, поиском).
-- **Доступ к данным**: SQLAlchemy ORM + Alembic миграции; репозитории.
-- **Интеграции**: AI-клиент, e-mail/магазины (плагины), импортер CSV.
-- **Хранение медиа**: локальный путь NAS, абстракция `MediaStorage` с адаптерами (NAS, облака в будущем).
+## Основные сущности
+- Users/Workspaces/Groups/Permissions
+- Items/Locations/Tags/Todos/Media
+- AI: AIDetection, AIDetectionObject, AIDetectionCandidate, AIDetectionReview
+- ItemBatch для массового ввода
 
-## Разграничение доступа
-- **Users / Groups / Memberships / Permissions**: роли владелец/редактор/читатель.
-- **Scopes**: private/public/group workspaces, управляются на уровне карточек/медиа/локаций.
-- **Tokens**: JWT, хранится на устройстве в Keystore/EncryptedSharedPreferences.
+## Навигация мобильного приложения
+Bottom bar: Вещи, Локации, Добавить, AI, Настройки. Экран AI — инбокс предложений. Быстрое добавление и батч-добавление вещей.
 
-## Поиск и фильтрация
-- PostgreSQL индексы: GIN по `tags`, `status`, `location_id`, `price`, `purchase_date`, `warranty_until`, полнотекст по названию/описанию/заметкам.
-- AI-поиск по фото: эндпоинт отправки фото, бэкенд передаёт задачу AI и возвращает кандидатов.
-
-## Логи и история
-- Таблица history_events: тип события, сущность, пользователь, до/после, timestamp.
-- API таймлайна карточки и местоположений.
-
-## Масштабирование и будущее
-- Возможность вынести AI в отдельный контейнер/кластер.
-- Расширяемые адаптеры хранения (NAS, S3-совместимые, облака).
-- Workspaces, тарифы, ограничение функций по планам — отдельные таблицы и middleware.
-
-Mobile UI ??????????:
-- ?????????: bottom bar (items, locations, add, aiReview, profile/settings) ?? Navigation Compose.
-- ViewModels: ItemEditViewModel, BatchAddViewModel, LocationViewModel, AiReviewViewModel.
-- ???????: MediaUploader (??????/??????? ? upload ? presigned), AiRepository (pending/accept/reject/log).
-- ???????????: offline-????????? ??? Quick Add, ??? ????? ???????, ??? AI-??????? ? ??.
+## Логирование и аналитика
+- Backend: стандартный logging в основных AI-эндпоинтах.
+- Mobile: AnalyticsLogger логирует экраны, клики, accept/reject и выбор локаций.

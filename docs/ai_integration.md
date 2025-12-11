@@ -1,60 +1,42 @@
-# AI-модуль "ГдеМоё"
+﻿# AI-интеграция "ГдеМоё"
 
-## Поток обработки
-1. Клиент загружает фото/видео → backend сохраняет медиа, создаёт запись `media`.
-2. Backend вызывает `POST /api/v1/ai/analyze` с `media_id`.
-3. Backend создаёт `aidetection` (status=pending) и (опционально) отправляет задачу во внешний AI сервис.
-4. AI сервис обрабатывает файл, возвращает callback или backend опрашивает его и обновляет `aidetection` + `aidetectionobject` + `aidetectioncandidate`.
-5. Клиент запрашивает карточки со статусом "Надо проверить" и/или кандидаты сопоставления.
+## Общая схема
+1. Клиент загружает фото/видео через /api/v1/media/upload, получает media_id.
+2. Клиент вызывает POST /api/v1/ai/analyze с media_id (или /analyze_video для видео) — создаётся запись idetection со статусом pending.
+3. Локальный пайплайн (YOLO/CLIP) или внешний AI-сервис обрабатывает медиа и добавляет idetectionobject и idetectioncandidate.
+4. Клиент получает инбокс через GET /api/v1/ai/detections?status=pending.
+5. Пользователь подтверждает/отклоняет: POST /api/v1/ai/detections/{id}/accept|reject, действия пишутся в idetectionreview.
 
-## Контракт FastAPI → AI сервис (пример)
-- **POST {AI_SERVICE_URL}/tasks**
-```json
-{
-  "media_id": 123,
-  "callback_id": 45,
-  "file_path": "/data/gdemo/media/1/1/123/original.jpg"
-}
-```
-Ответ: `{"task_id": "abc-123"}`.
+## Пример запросов
+- Запуск анализа:
+`
+POST /api/v1/ai/analyze
+{ "media_id": 123 }
+`
+- Инбокс:
+`
+GET /api/v1/ai/detections?status=pending
+`
+- Принятие/отклонение:
+`
+POST /api/v1/ai/detections/10/accept
+{ "item_id": 5, "location_id": 8 }
+`
+`
+POST /api/v1/ai/detections/10/reject
+{}
+`
+- Лог действия:
+`
+POST /api/v1/ai/detections/10/review_log
+{ "action": "link_existing", "payload": {"item_id":5} }
+`
 
-- **POST {backend}/api/v1/ai/callback** (AI вызывает backend)
-```json
-{
-  "callback_id": 45,
-  "objects": [
-    {
-      "label": "Перфоратор Bosch",
-      "confidence": 0.92,
-      "bbox": {"x":0.1,"y":0.2,"w":0.4,"h":0.5},
-      "candidates": [
-        {"item_id": 12, "score": 0.83},
-        {"item_id": 37, "score": 0.55}
-      ],
-      "suggested_location_id": 8
-    }
-  ]
-}
-```
-Backend:
-- обновляет `aidetection.status=done`,
-- сохраняет объекты и кандидатов,
-- при `candidates` пустых создаёт новую карточку со статусом `needs_review`.
+## Модели (коротко)
+- idetection: id, media_id, status (pending/in_progress/done/failed), created_at/completed_at, media_path/thumb_path.
+- idetectionobject: label, confidence, bbox, suggested_location_id, decision (pending/accepted/rejected).
+- idetectioncandidate: detection_object_id, item_id, score.
+- idetectionreview: detection_id, user_id, action, payload, created_at.
 
-## Прототипы в коде
-- `backend/app/api/routes/ai.py` — создание задачи анализа.
-- `backend/app/models/ai.py` — таблицы `aidetection`, `aidetectionobject`, `aidetectioncandidate`.
-- `backend/app/schemas/ai.py` — схемы ответов.
-
-## Рекомендации к реализации AI
-- Использовать готовые модели детекции (YOLOv8/Segment Anything) + текстовый энкодер для сопоставления с карточками.
-- Хранить вычисленные вектора признаков в кэше (Redis/PG vector) для быстрого поиска похожих карточек.
-- Ограничивать нагрузку: очередь задач, максимум N одновременных обработок.
-- Для видео: извлекать ключевые кадры, анализировать, агрегировать результаты.
-
-????? API ??? AI-???????:
-- GET /api/v1/ai/detections?status=pending|done � ?????? ????????.
-- POST /api/v1/ai/detections/{id}/accept {item_id?, location_id?}
-- POST /api/v1/ai/detections/{id}/reject {item_id?, location_id?}
-- POST /api/v1/ai/detections/{id}/review_log {action, payload}
-??????: ????? upload ???????? /ai/analyze, ????? ?????? /ai/detections ? ????? ??????? ? /review_log.
+## Связь с медиа
+Файлы хранятся в /data/gdemo/media/{workspace}/{user}/{card_id}/...; thumb генерируется при загрузке. media_path и 	humb_path возвращаются в инбоксе для превью в мобильном приложении.
