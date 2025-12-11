@@ -11,3 +11,6 @@
 - CI: GitHub Actions `.github/workflows/ci.yml` — запускает `./gradlew testDebugUnitTest` при push/PR.
 - При необходимости обновления APK — выполняю сборку сам (`./gradlew assembleDebug`).
 - При необходимости сборки и перезапуска backend в Docker — выполняю сам (`docker compose build api && docker compose up -d api`).
+
+GitHub:
+- origin: git@github.com:sergeyenikeev/GdeMoe.git (account sergeyenikeev, CI via GitHub Actions).

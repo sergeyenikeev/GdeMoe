@@ -101,11 +101,20 @@ interface ApiService {
         @Part("owner_user_id") ownerUserId: okhttp3.RequestBody,
         @Part("media_type") mediaType: okhttp3.RequestBody,
         @Part("scope") scope: okhttp3.RequestBody,
-        @Part("subdir") subdir: okhttp3.RequestBody
+        @Part("subdir") subdir: okhttp3.RequestBody,
+        @Part("item_id") itemId: okhttp3.RequestBody? = null,
+        @Part("location_id") locationId: okhttp3.RequestBody? = null,
+        @Part("analyze") analyze: okhttp3.RequestBody? = null,
+        @Part("source") source: okhttp3.RequestBody? = null,
+        @Part("client_created_at") clientCreatedAt: okhttp3.RequestBody? = null,
+        @Part("mime_type") mimeType: okhttp3.RequestBody? = null
     ): MediaUploadResponse
 
     @GET("/api/v1/media/recent")
     suspend fun recentMedia(@Query("scope") scope: String = "public"): List<MediaDto>
+
+    @GET("/api/v1/media/{id}")
+    suspend fun mediaDetails(@Path("id") id: Int): MediaDto
 
     @GET("/api/v1/ai/detections")
     suspend fun aiDetections(@Query("status") status: String = "pending"): List<AiDetectionDto>

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,14 +62,17 @@ import com.gdemo.data.model.MediaUploadResponse
 import com.gdemo.data.model.UpdateItemRequest
 import com.gdemo.data.remote.ApiClient
 import com.gdemo.data.remote.ApiService
+import com.gdemo.util.UploadQueue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.source
+import java.io.File
 import java.io.IOException
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -113,6 +118,12 @@ fun ItemDetailsScreen(
     var originCountry by remember { mutableStateOf("") }
     var isUploading by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    val uploadQueue = remember { UploadQueue(coroutineScope) }
+    val queueTasks by uploadQueue.tasks.collectAsState()
+    val hasActiveUploads = queueTasks.any { it.status == UploadQueue.Status.PENDING || it.status == UploadQueue.Status.RUNNING || it.status == UploadQueue.Status.RETRYING }
+    LaunchedEffect(hasActiveUploads) {
+        isUploading = hasActiveUploads
+    }
     val idInt = itemId.toIntOrNull() ?: 0
 
     suspend fun loadItem() {
@@ -206,22 +217,24 @@ fun ItemDetailsScreen(
         }
     }
 
-    fun attachMedia(uri: Uri, mediaType: String) {
-        coroutineScope.launch {
-            try {
-                isUploading = true
-                val uploaded = uploadUri(context, uri, api, scopeSelection, mediaType, idInt)
-                if (uploaded != null) {
-                    api.linkMedia(idInt, uploaded.id)
-                    loadMedia()
-                    message = "Медиа прикреплено"
-                } else {
-                    message = "Не удалось загрузить файл"
-                }
-            } catch (e: Exception) {
-                message = "Ошибка загрузки: ${e.localizedMessage}"
-            } finally {
-                isUploading = false
+    fun attachMedia(uri: Uri, mediaType: String, source: String = "gallery") {
+        uploadQueue.enqueue("item_${idInt}_$mediaType") {
+            val uploaded = uploadUri(
+                context = context,
+                uri = uri,
+                api = api,
+                scope = scopeSelection,
+                mediaType = mediaType,
+                itemId = idInt,
+                source = source
+            )
+            if (uploaded != null) {
+                loadMedia()
+                message = "DoDæD'D,Dø D¨¥?D,D§¥?DæD¨D¯DæD«D_"
+                true
+            } else {
+                message = "D?Dæ ¥ŸD'DøD¯D_¥?¥O DúDøD3¥?¥ŸDúD,¥,¥O ¥,DøD1D¯"
+                false
             }
         }
     }
@@ -273,6 +286,26 @@ fun ItemDetailsScreen(
         }
     }
 
+    var tempPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    var tempVideoUri by remember { mutableStateOf<Uri?>(null) }
+
+    val capturePhotoLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+            if (success) {
+                tempPhotoUri?.let { attachMedia(it, "photo", "camera") }
+            } else {
+                tempPhotoUri = null
+            }
+        }
+    val captureVideoLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
+            if (success) {
+                tempVideoUri?.let { attachMedia(it, "video", "camera") }
+            } else {
+                tempVideoUri = null
+            }
+        }
+
     val pickImageLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri != null) attachMedia(uri, "photo")
@@ -292,6 +325,21 @@ fun ItemDetailsScreen(
     LaunchedEffect(idInt) {
         loadItem()
         loadMedia()
+    }
+
+    LaunchedEffect(mediaList.map { it.id to (it.analysis?.status ?: it.detection?.status) }) {
+        mediaList
+            .filter {
+                val status = it.analysis?.status ?: it.detection?.status
+                status == "pending" || status == "in_progress"
+            }
+            .forEach { media ->
+                delay(2000)
+                runCatching { api.mediaDetails(media.id) }
+                    .onSuccess { updated ->
+                        mediaList = mediaList.map { current -> if (current.id == updated.id) updated else current }
+                    }
+            }
     }
 
     Column(
@@ -514,12 +562,49 @@ fun ItemDetailsScreen(
             }
             item {
                 Text(text = "Медиафайлы")
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(onClick = { pickImageLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) {
-                        Text("Прикрепить фото")
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(onClick = { pickImageLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) {
+                            Text("Прикрепить фото")
+                        }
+                        Button(onClick = { pickVideoLauncher.launch("video/*") }, modifier = Modifier.weight(1f)) {
+                            Text("Прикрепить видео")
+                        }
                     }
-                    Button(onClick = { pickVideoLauncher.launch("video/*") }, modifier = Modifier.weight(1f)) {
-                        Text("Прикрепить видео")
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(
+                            onClick = {
+                                val photoFile = File.createTempFile("capture_photo_", ".jpg", context.cacheDir)
+                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", photoFile)
+                                tempPhotoUri = uri
+                                capturePhotoLauncher.launch(uri)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Снять фото") }
+                        Button(
+                            onClick = {
+                                val videoFile = File.createTempFile("capture_video_", ".mp4", context.cacheDir)
+                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", videoFile)
+                                tempVideoUri = uri
+                                captureVideoLauncher.launch(uri)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Записать видео") }
+                    }
+                    if (queueTasks.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Очередь загрузки")
+                            queueTasks.forEach { task ->
+                                val statusText = when (task.status) {
+                                    com.gdemo.util.UploadQueue.Status.PENDING -> "Ожидание"
+                                    com.gdemo.util.UploadQueue.Status.RUNNING -> "Загрузка"
+                                    com.gdemo.util.UploadQueue.Status.RETRYING -> "Повтор (${task.attempts})"
+                                    com.gdemo.util.UploadQueue.Status.SUCCESS -> "Готово"
+                                    com.gdemo.util.UploadQueue.Status.FAILED -> "Ошибка"
+                                }
+                                Text("${task.label}: $statusText")
+                            }
+                        }
                     }
                 }
             }
@@ -662,7 +747,8 @@ private suspend fun uploadUri(
     api: ApiService,
     scope: String,
     mediaType: String,
-    itemId: Int
+    itemId: Int?,
+    source: String
 ): MediaUploadResponse? {
     return withContext(Dispatchers.IO) {
         try {
@@ -676,13 +762,13 @@ private suspend fun uploadUri(
                 mime.contains("mp4") || mime.contains("video") -> ".mp4"
                 else -> ""
             }
-            val fileName = "item_${itemId}_${mediaType}_${System.currentTimeMillis()}$ext"
+            val fileName = (if (itemId != null && itemId > 0) "item_${itemId}" else "inbox") + "_${mediaType}_${System.currentTimeMillis()}$ext"
             val requestBody: RequestBody = object : RequestBody() {
                 override fun contentType() = mime.toMediaType()
                 override fun writeTo(sink: okio.BufferedSink) {
                     cr.openInputStream(uri)?.use { input ->
-                        input.source().use { source -> sink.writeAll(source) }
-                    } ?: throw IOException("Не удалось открыть файл")
+                        input.source().use { sourceStream -> sink.writeAll(sourceStream) }
+                    } ?: throw IOException("D?Dæ ¥ŸD'DøD¯D_¥?¥O D_¥,D§¥?¥<¥,¥O ¥,DøD1D¯")
                 }
             }
             val part = MultipartBody.Part.createFormData("file", fileName, requestBody)
@@ -693,10 +779,16 @@ private suspend fun uploadUri(
                 ownerUserId = textBody("1"),
                 mediaType = textBody(mediaType),
                 scope = textBody(scope),
-                subdir = textBody("items/$itemId")
+                subdir = textBody(if (itemId != null && itemId > 0) "items/$itemId" else "inbox"),
+                itemId = itemId?.let { textBody(it.toString()) },
+                analyze = textBody("true"),
+                source = textBody(source),
+                clientCreatedAt = textBody(System.currentTimeMillis().toString()),
+                mimeType = textBody(mime)
             )
         } catch (_: Exception) {
             null
         }
     }
 }
+

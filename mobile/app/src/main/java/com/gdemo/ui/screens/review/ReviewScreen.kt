@@ -325,7 +325,11 @@ private suspend fun uploadUri(
                 ownerUserId = textBody("1"),
                 mediaType = textBody(mediaType),
                 scope = textBody(scope),
-                subdir = textBody("mobile")
+                subdir = textBody("mobile"),
+                analyze = textBody("true"),
+                source = textBody("review"),
+                clientCreatedAt = textBody(System.currentTimeMillis().toString()),
+                mimeType = textBody(mime)
             )
             true
         } catch (_: Exception) {

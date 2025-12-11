@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import List
 
@@ -12,8 +13,15 @@ from app.models.media import Media
 from app.services.ai.detector import detect_objects
 from app.services.ai.embeddings import image_embedding
 
+logger = logging.getLogger(__name__)
 
-async def analyze_video(media_id: int, db: AsyncSession, frame_stride: int = 300, max_frames: int = 1) -> List[int]:
+
+async def analyze_video(
+    media_id: int,
+    db: AsyncSession,
+    frame_stride: int | None = None,
+    max_frames: int | None = None,
+) -> List[int]:
     """
     Analyze video by sampling frames; creates detections linked to the original media_id.
     Uses lightweight sampling to avoid long runtimes on CPU-only NAS.
@@ -38,18 +46,20 @@ async def analyze_video(media_id: int, db: AsyncSession, frame_stride: int = 300
     if not cap.isOpened():
         raise RuntimeError("Cannot open video")
 
+    stride = frame_stride or settings.video_frame_stride
+    limit = max_frames or settings.video_max_frames
     detection_ids: List[int] = []
     frame_idx = 0
     processed_frames = 0
     try:
         ok, frame = cap.read()
-        while ok and processed_frames < max_frames:
-            if frame_idx % frame_stride == 0:
+        while ok and processed_frames < limit:
+            if frame_idx % stride == 0:
                 tmp_path = base_path / "tmp_frames"
                 tmp_path.mkdir(parents=True, exist_ok=True)
                 frame_file = tmp_path / f"frame_{media_id}_{frame_idx}.jpg"
                 cv2.imwrite(str(frame_file), frame)
-                detection = await _create_detection_from_frame(media_id, frame_file, db)
+                detection = await _create_detection_from_frame(media_id, frame_file, db, frame_idx)
                 detection_ids.append(detection.id)
                 try:
                     frame_file.unlink(missing_ok=True)
@@ -58,13 +68,29 @@ async def analyze_video(media_id: int, db: AsyncSession, frame_stride: int = 300
                 processed_frames += 1
             frame_idx += 1
             ok, frame = cap.read()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("analyze_video failed for media %s: %s", media_id, exc)
+        failed = AIDetection(media_id=media_id, status=AIDetectionStatus.FAILED, raw={"error": str(exc)})
+        db.add(failed)
+        await db.commit()
     finally:
         cap.release()
         await db.commit()
+        tmp_dir = base_path / "tmp_frames"
+        try:
+            if tmp_dir.exists() and not any(tmp_dir.iterdir()):
+                tmp_dir.rmdir()
+        except Exception:
+            pass
     return detection_ids
 
 
-async def _create_detection_from_frame(media_id: int, frame_path: Path, db: AsyncSession) -> AIDetection:
+async def _create_detection_from_frame(
+    media_id: int,
+    frame_path: Path,
+    db: AsyncSession,
+    frame_index: int,
+) -> AIDetection:
     import cv2  # noqa: WPS433
 
     with frame_path.open("rb") as f:
@@ -72,7 +98,11 @@ async def _create_detection_from_frame(media_id: int, frame_path: Path, db: Asyn
     image_np = np.array(image)
     detections = detect_objects(image_np)
 
-    detection_row = AIDetection(media_id=media_id, status=AIDetectionStatus.IN_PROGRESS, raw={"objects": []})
+    detection_row = AIDetection(
+        media_id=media_id,
+        status=AIDetectionStatus.IN_PROGRESS,
+        raw={"objects": [], "frame_index": frame_index},
+    )
     db.add(detection_row)
     await db.flush()
 

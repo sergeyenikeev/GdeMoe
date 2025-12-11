@@ -254,15 +254,19 @@ private suspend fun attachImageFromUrl(
                 val textBody: (String) -> okhttp3.RequestBody = {
                     it.toRequestBody("text/plain".toMediaTypeOrNull())
                 }
-                val uploaded = api.uploadMedia(
+                api.uploadMedia(
                     file = part,
                     workspaceId = textBody("2"),
                     ownerUserId = textBody("1"),
                     mediaType = textBody("photo"),
                     scope = textBody(scope),
-                    subdir = textBody("items/$itemId")
+                    subdir = textBody("items/$itemId"),
+                    itemId = textBody(itemId.toString()),
+                    analyze = textBody("true"),
+                    source = textBody("import_url"),
+                    clientCreatedAt = textBody(System.currentTimeMillis().toString()),
+                    mimeType = textBody(mime)
                 )
-                api.linkMedia(itemId, uploaded.id)
             }
         }
     }
