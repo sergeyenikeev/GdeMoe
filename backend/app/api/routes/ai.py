@@ -1,4 +1,5 @@
 import httpx
+import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +25,7 @@ from app.services.ai.pipeline import analyze_media
 from app.services.ai.video import analyze_video
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/analyze")
@@ -45,10 +47,12 @@ async def request_analysis(payload: AITaskRequest, db: AsyncSession = Depends(ge
         loaded = await _load_detection(db, detection.id)
         return loaded
 
+    logger.info("ai.analyze.start media_id=%s", payload.media_id)
     # Local pipeline (YOLO + CLIP)
     try:
         detection = await analyze_media(payload.media_id, db)
     except ImportError as exc:
+        logger.exception("ai.analyze.failed media_id=%s", payload.media_id)
         raise HTTPException(
             status_code=503,
             detail=f"AI dependencies missing on backend: {exc}. Install torch/ultralytics/open_clip.",
@@ -70,6 +74,7 @@ async def list_detections(
     status: AIDetectionStatusEnum = AIDetectionStatusEnum.PENDING,
     db: AsyncSession = Depends(get_db),
 ):
+    logger.info("ai.detections.list status=%s", status)
     result = await db.execute(
         select(AIDetection)
         .where(AIDetection.status == status)
@@ -113,6 +118,7 @@ async def list_detections(
 async def accept_detection(
     detection_id: int, body: AIDetectionActionRequest, db: AsyncSession = Depends(get_db)
 ):
+    logger.info("ai.detection.accept id=%s item_id=%s location_id=%s", detection_id, body.item_id, body.location_id)
     detection = await db.get(AIDetection, detection_id)
     if detection is None:
         raise HTTPException(status_code=404, detail="Detection not found")
@@ -139,6 +145,7 @@ async def accept_detection(
 async def reject_detection(
     detection_id: int, body: AIDetectionActionRequest | None = None, db: AsyncSession = Depends(get_db)
 ):
+    logger.info("ai.detection.reject id=%s item_id=%s location_id=%s", detection_id, body.item_id if body else None, body.location_id if body else None)
     detection = await db.get(AIDetection, detection_id)
     if detection is None:
         raise HTTPException(status_code=404, detail="Detection not found")
@@ -165,6 +172,7 @@ async def reject_detection(
 async def add_review_log(
     detection_id: int, body: AIDetectionReviewRequest, db: AsyncSession = Depends(get_db)
 ):
+    logger.info("ai.detection.review_log id=%s action=%s", detection_id, body.action)
     detection = await db.get(AIDetection, detection_id)
     if detection is None:
         raise HTTPException(status_code=404, detail="Detection not found")

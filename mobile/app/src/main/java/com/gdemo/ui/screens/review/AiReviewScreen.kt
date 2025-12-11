@@ -28,6 +28,7 @@ import coil.compose.AsyncImage
 import com.gdemo.data.model.AiDetectionDto
 import com.gdemo.data.model.AiDetectionObjectDto
 import com.gdemo.data.remote.ApiClient
+import com.gdemo.util.AnalyticsLogger
 
 @Composable
 fun AiReviewScreen(
@@ -59,8 +60,14 @@ fun AiReviewScreen(
                 DetectionCard(
                     detection = detection,
                     baseUrl = baseUrl,
-                    onAccept = { viewModel.accept(detection.id) },
-                    onReject = { viewModel.reject(detection.id) },
+                    onAccept = {
+                        AnalyticsLogger.event("ai_review_accept", mapOf("detectionId" to detection.id))
+                        viewModel.accept(detection.id)
+                    },
+                    onReject = {
+                        AnalyticsLogger.event("ai_review_reject", mapOf("detectionId" to detection.id))
+                        viewModel.reject(detection.id)
+                    },
                     onOpenItem = onOpenItem
                 )
             }

@@ -35,6 +35,7 @@ import com.gdemo.data.local.loadConnection
 import com.gdemo.data.model.CreateItemRequest
 import com.gdemo.data.model.LocationDto
 import com.gdemo.data.remote.ApiClient
+import com.gdemo.util.AnalyticsLogger
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,12 +55,16 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
     val api = remember(baseUrl) { ApiClient.create(ApiClient.sanitizeBaseUrl(baseUrl)) }
 
     LaunchedEffect(baseUrl) {
-        runCatching { api.locations() }.onSuccess { locations = it }
+        runCatching { api.locations() }.onSuccess {
+            locations = it
+            AnalyticsLogger.debug("locations_loaded", mapOf("count" to it.size))
+        }
     }
 
     fun save() {
         scope.launch {
             try {
+                AnalyticsLogger.event("quick_add_submit", mapOf("location" to selectedLocation?.id))
                 val created = api.createItem(
                     CreateItemRequest(
                         title = title,
@@ -70,6 +75,7 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                     )
                 )
                 message = "Создано #${created.id}"
+                AnalyticsLogger.event("quick_add_success", mapOf("itemId" to created.id))
                 onItemCreated(created.id)
                 if (saveAndNext) {
                     title = ""
@@ -79,6 +85,7 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                 }
             } catch (e: Exception) {
                 message = "Ошибка: ${e.localizedMessage}"
+                AnalyticsLogger.event("quick_add_error", mapOf("error" to e.localizedMessage))
             }
         }
     }
@@ -100,7 +107,10 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                     label = { Text("Название вещи") }
                 )
                 OutlinedButton(
-                    onClick = { showPicker = true },
+                    onClick = {
+                        showPicker = true
+                        AnalyticsLogger.event("quick_add_open_location_picker")
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(selectedLocation?.path ?: "Выбрать локацию")
@@ -143,6 +153,7 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                             .clickable {
                                 selectedLocation = loc
                                 showPicker = false
+                                AnalyticsLogger.event("quick_add_location_selected", mapOf("locationId" to loc.id))
                             }
                     )
                 }

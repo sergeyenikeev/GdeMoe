@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.gdemo.data.local.loadConnection
 import com.gdemo.data.model.Item
 import com.gdemo.data.remote.ApiClient
+import com.gdemo.util.AnalyticsLogger
 import kotlinx.coroutines.launch
 
 @Composable
@@ -32,18 +33,21 @@ fun ItemListScreen(paddingValues: PaddingValues, onItemClick: (Int) -> Unit) {
     val stored = remember { context.loadConnection() }
     var baseUrl by remember { mutableStateOf(stored.baseUrl) }
     var items by remember { mutableStateOf<List<Item>>(emptyList()) }
-    var message by remember { mutableStateOf("Загружаем...") }
+    var message by remember { mutableStateOf("Загрузка...") }
     val scope = rememberCoroutineScope()
-    var api = remember(baseUrl) { ApiClient.create(ApiClient.sanitizeBaseUrl(baseUrl)) }
+    val api = remember(baseUrl) { ApiClient.create(ApiClient.sanitizeBaseUrl(baseUrl)) }
 
     fun refresh() {
         scope.launch {
             try {
-                message = "Загружаем..."
+                AnalyticsLogger.event("items_refresh_start")
+                message = "Загрузка..."
                 items = api.items()
-                message = if (items.isEmpty()) "Пока нет карточек" else "Найдено: ${items.size}"
+                AnalyticsLogger.event("items_refresh_success", mapOf("count" to items.size))
+                message = if (items.isEmpty()) "Нет данных" else "Всего: ${items.size}"
             } catch (e: Exception) {
                 message = "Ошибка: ${e.localizedMessage}"
+                AnalyticsLogger.event("items_refresh_error", mapOf("error" to e.localizedMessage))
             }
         }
     }
@@ -64,7 +68,10 @@ fun ItemListScreen(paddingValues: PaddingValues, onItemClick: (Int) -> Unit) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onItemClick(item.id) }
+                        .clickable {
+                            AnalyticsLogger.event("item_click", mapOf("itemId" to item.id))
+                            onItemClick(item.id)
+                        }
                 ) {
                     Text(
                         text = item.title,
@@ -72,13 +79,13 @@ fun ItemListScreen(paddingValues: PaddingValues, onItemClick: (Int) -> Unit) {
                         modifier = Modifier.padding(12.dp)
                     )
                     Text(
-                        text = "Статус: ${item.status} • ${item.location ?: "без места"}",
+                        text = "Статус: ${item.status} · ${item.location ?: "не указано"}",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
                     if (item.needsReview) {
                         Text(
-                            text = "Нужно проверить",
+                            text = "Требует проверки",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)

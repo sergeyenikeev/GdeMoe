@@ -40,6 +40,7 @@ import com.gdemo.ui.screens.onboarding.OnboardingScreen
 import com.gdemo.ui.screens.review.AiReviewScreen
 import com.gdemo.ui.screens.review.AiReviewViewModel
 import com.gdemo.ui.screens.settings.SettingsScreen
+import com.gdemo.util.AnalyticsLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -74,6 +75,7 @@ fun GdeNavHost(isOnboarded: Boolean, onFinishOnboarding: () -> Unit, sharedConte
         if (!sharedHandled && isOnboarded && sharedContent != null) {
             try {
                 val api = ApiClient.create(ApiClient.sanitizeBaseUrl(stored.baseUrl))
+                AnalyticsLogger.event("share_received", mapOf("type" to sharedContent.mimeType, "url" to sharedContent.url))
                 if (!sharedContent.url.isNullOrBlank()) {
                     val imported = runCatching {
                         api.importProductLink(ProductImportRequest(url = sharedContent.url, source = "mobile_share"))
@@ -108,6 +110,7 @@ fun GdeNavHost(isOnboarded: Boolean, onFinishOnboarding: () -> Unit, sharedConte
                     navController.navigate("${Destinations.ItemDetails.route}/${created.id}") {
                         launchSingleTop = true
                     }
+                    AnalyticsLogger.event("share_import_success", mapOf("itemId" to created.id))
                 } else if (!sharedContent.fileUri.isNullOrBlank()) {
                     val receiptItemId = handleReceiptShare(
                         api = api,
@@ -121,9 +124,11 @@ fun GdeNavHost(isOnboarded: Boolean, onFinishOnboarding: () -> Unit, sharedConte
                             launchSingleTop = true
                         }
                     }
+                    AnalyticsLogger.event("share_receipt_success", mapOf("itemId" to receiptItemId))
                 }
             } catch (_: Exception) {
                 // ignore errors to avoid breaking host
+                AnalyticsLogger.event("share_import_failed")
             } finally {
                 sharedHandled = true
             }
@@ -177,14 +182,17 @@ fun GdeNavHost(isOnboarded: Boolean, onFinishOnboarding: () -> Unit, sharedConte
                 })
             }
             composable(Destinations.Items.route) {
+                AnalyticsLogger.screen("items")
                 ItemListScreen(padding) { id ->
                     navController.navigate("${Destinations.ItemDetails.route}/$id")
                 }
             }
             composable(Destinations.Locations.route) {
+                AnalyticsLogger.screen("locations")
                 LocationTreeScreen(padding)
             }
             composable(Destinations.Add.route) {
+                AnalyticsLogger.screen("quick_add")
                 QuickAddScreen(padding) { createdId ->
                     navController.navigate("${Destinations.ItemDetails.route}/$createdId") {
                         launchSingleTop = true
@@ -192,6 +200,7 @@ fun GdeNavHost(isOnboarded: Boolean, onFinishOnboarding: () -> Unit, sharedConte
                 }
             }
             composable(Destinations.AiReview.route) {
+                AnalyticsLogger.screen("ai_review")
                 val vm = remember(stored.baseUrl) { AiReviewViewModel(stored.baseUrl) }
                 AiReviewScreen(
                     paddingValues = padding,
@@ -201,10 +210,12 @@ fun GdeNavHost(isOnboarded: Boolean, onFinishOnboarding: () -> Unit, sharedConte
                 )
             }
             composable(Destinations.Settings.route) {
+                AnalyticsLogger.screen("settings")
                 SettingsScreen(padding)
             }
             // optional search entry point (not on bottom bar)
             composable("search") {
+                AnalyticsLogger.screen("search")
                 SearchScreen(padding) { id ->
                     navController.navigate("${Destinations.ItemDetails.route}/$id")
                 }
