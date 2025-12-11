@@ -9,3 +9,5 @@
 - Вести документацию о сделанных и предстоящих задачах.
 - Собирать и учитывать статистику действий пользователя для улучшения UX/UI.
 - CI: GitHub Actions `.github/workflows/ci.yml` — запускает `./gradlew testDebugUnitTest` при push/PR.
+- При необходимости обновления APK — выполняю сборку сам (`./gradlew assembleDebug`).
+- При необходимости сборки и перезапуска backend в Docker — выполняю сам (`docker compose build api && docker compose up -d api`).
