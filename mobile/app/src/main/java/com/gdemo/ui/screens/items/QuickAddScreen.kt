@@ -33,7 +33,10 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -95,7 +98,46 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
         val aiStatus: String? = null,
         val aiLabels: List<String> = emptyList()
     )
-    val uploadHistory = remember { mutableStateListOf<UploadHistoryItem>() }
+    val uploadHistorySaver = listSaver<SnapshotStateList<UploadHistoryItem>, List<String>>(
+        save = { list: SnapshotStateList<UploadHistoryItem> ->
+            list.map {
+                listOf(
+                    it.id.toString(),
+                    it.label,
+                    it.status.name,
+                    it.attempts.toString(),
+                    it.previewUri ?: "",
+                    it.mediaType ?: "",
+                    it.mediaId?.toString() ?: "",
+                    it.remoteUrl ?: "",
+                    it.aiStatus ?: "",
+                    it.aiLabels.joinToString("|")
+                )
+            }
+        },
+        restore = { saved: List<List<String>> ->
+            mutableStateListOf<UploadHistoryItem>().apply {
+                saved.forEach { row ->
+                    add(
+                        UploadHistoryItem(
+                            id = row.getOrNull(0)?.toLongOrNull() ?: System.currentTimeMillis(),
+                            label = row.getOrNull(1) ?: "",
+                            status = row.getOrNull(2)?.let { UploadQueue.Status.valueOf(it) }
+                                ?: UploadQueue.Status.PENDING,
+                            attempts = row.getOrNull(3)?.toIntOrNull() ?: 0,
+                            previewUri = row.getOrNull(4)?.ifBlank { null },
+                            mediaType = row.getOrNull(5)?.ifBlank { null },
+                            mediaId = row.getOrNull(6)?.toIntOrNull(),
+                            remoteUrl = row.getOrNull(7)?.ifBlank { null },
+                            aiStatus = row.getOrNull(8)?.ifBlank { null },
+                            aiLabels = row.getOrNull(9)?.split("|")?.filter { it.isNotBlank() } ?: emptyList()
+                        )
+                    )
+                }
+            }
+        }
+    )
+    val uploadHistory = rememberSaveable(saver = uploadHistorySaver) { mutableStateListOf<UploadHistoryItem>() }
     LaunchedEffect(queueTasks) {
         queueTasks.forEach { task ->
             val idx = uploadHistory.indexOfFirst { it.id == task.id }
@@ -136,11 +178,11 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                 val details = runCatching { api.mediaDetails(uploaded.id) }.getOrNull()
                 val sanitized = ApiClient.sanitizeBaseUrl(baseUrl).trimEnd('/')
                 val remoteUrl = details?.file_url?.let { "$sanitized/${it.trimStart('/')}" }
-                val aiStatus = details?.analysis?.status ?: details?.detection?.status ?: uploaded.analysis?.status
-                val aiLabels = details?.detection?.objects?.take(3)?.map {
-                    val conf = (it.confidence * 100).roundToInt()
-                    "${it.label} (${conf}%)"
-                } ?: emptyList()
+                        val aiStatus = details?.analysis?.status ?: details?.detection?.status ?: uploaded.analysis?.status
+                        val aiLabels = details?.detection?.objects?.take(3)?.map {
+                            val conf = (it.confidence * 100).roundToInt()
+                            "${it.label} (${conf}%)"
+                        } ?: emptyList()
                 val idx = uploadHistory.indexOfFirst { it.label == label }
                 if (idx >= 0) {
                     uploadHistory[idx] = uploadHistory[idx].copy(

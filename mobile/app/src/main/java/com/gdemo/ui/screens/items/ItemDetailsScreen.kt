@@ -41,7 +41,10 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -105,7 +108,38 @@ fun ItemDetailsScreen(
         val previewUri: String?,
         val mediaType: String?
     )
-    val uploadHistory = remember { mutableStateListOf<UploadHistoryItem>() }
+    val uploadHistorySaver = listSaver<SnapshotStateList<UploadHistoryItem>, List<String>>(
+        save = { list: SnapshotStateList<UploadHistoryItem> ->
+            list.map {
+                listOf(
+                    it.id.toString(),
+                    it.label,
+                    it.status.name,
+                    it.attempts.toString(),
+                    it.previewUri ?: "",
+                    it.mediaType ?: ""
+                )
+            }
+        },
+        restore = { saved: List<List<String>> ->
+            mutableStateListOf<UploadHistoryItem>().apply {
+                saved.forEach { row ->
+                    add(
+                        UploadHistoryItem(
+                            id = row.getOrNull(0)?.toLongOrNull() ?: System.currentTimeMillis(),
+                            label = row.getOrNull(1) ?: "",
+                            status = row.getOrNull(2)?.let { UploadQueue.Status.valueOf(it) }
+                                ?: UploadQueue.Status.PENDING,
+                            attempts = row.getOrNull(3)?.toIntOrNull() ?: 0,
+                            previewUri = row.getOrNull(4)?.ifBlank { null },
+                            mediaType = row.getOrNull(5)?.ifBlank { null }
+                        )
+                    )
+                }
+            }
+        }
+    )
+    val uploadHistory = rememberSaveable(saver = uploadHistorySaver) { mutableStateListOf<UploadHistoryItem>() }
     var mediaList by remember { mutableStateOf<List<MediaDto>>(emptyList()) }
     var locations by remember { mutableStateOf<List<LocationDto>>(emptyList()) }
     var selectedLocationIds by remember { mutableStateOf<List<Int>>(emptyList()) }
