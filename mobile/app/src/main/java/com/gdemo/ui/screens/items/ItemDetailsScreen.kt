@@ -40,6 +40,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +76,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okio.source
 import java.io.File
 import java.io.IOException
+import kotlin.math.roundToInt
 
 @Suppress("DEPRECATION")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -95,6 +98,30 @@ fun ItemDetailsScreen(
     var statusExpanded by remember { mutableStateOf(false) }
     val statusOptions = listOf("ok", "new", "broken", "needs_review", "lost", "repaired", "sold", "discarded", "want", "in_transit")
     var message by remember { mutableStateOf("Загружаем карточку...") }
+    data class UploadHistoryItem(
+        val id: Long,
+        val label: String,
+        val status: UploadQueue.Status,
+        val attempts: Int,
+        val previewUri: String?,
+        val mediaType: String?
+    )
+    val historySaver = listSaver<List<UploadHistoryItem>, Any>(
+        save = { list -> list.flatMap { listOf(it.id, it.label, it.status.name, it.attempts, it.previewUri ?: "", it.mediaType ?: "") } },
+        restore = { restored ->
+            restored.chunked(6).map {
+                UploadHistoryItem(
+                    id = (it[0] as Number).toLong(),
+                    label = it[1] as String,
+                    status = UploadQueue.Status.valueOf(it[2] as String),
+                    attempts = (it[3] as Number).toInt(),
+                    previewUri = (it[4] as String).ifBlank { null },
+                    mediaType = (it[5] as String).ifBlank { null }
+                )
+            }
+        }
+    )
+    var uploadHistory by rememberSaveable(stateSaver = historySaver) { mutableStateOf(emptyList<UploadHistoryItem>()) }
     var mediaList by remember { mutableStateOf<List<MediaDto>>(emptyList()) }
     var locations by remember { mutableStateOf<List<LocationDto>>(emptyList()) }
     var selectedLocationIds by remember { mutableStateOf<List<Int>>(emptyList()) }
@@ -124,6 +151,18 @@ fun ItemDetailsScreen(
     val hasActiveUploads = queueTasks.any { it.status == UploadQueue.Status.PENDING || it.status == UploadQueue.Status.RUNNING || it.status == UploadQueue.Status.RETRYING }
     LaunchedEffect(hasActiveUploads) {
         isUploading = hasActiveUploads
+    }
+    LaunchedEffect(queueTasks) {
+        uploadHistory = uploadHistory.toMutableList().apply {
+            queueTasks.forEach { task ->
+                val idx = indexOfFirst { it.id == task.id }
+                if (idx >= 0) {
+                    this[idx] = this[idx].copy(status = task.status, attempts = task.attempts)
+                } else {
+                    add(UploadHistoryItem(task.id, task.label, task.status, task.attempts, task.previewUri, task.mediaType))
+                }
+            }
+        }
     }
     val idInt = itemId.toIntOrNull() ?: 0
 
@@ -592,10 +631,10 @@ fun ItemDetailsScreen(
                             modifier = Modifier.weight(1f)
                         ) { Text("Записать видео") }
                     }
-                    if (queueTasks.isNotEmpty()) {
+                    if (uploadHistory.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("История загрузок и анализов")
-                            queueTasks.forEach { task ->
+                            uploadHistory.forEach { task ->
                                 val statusText = when (task.status) {
                                     com.gdemo.util.UploadQueue.Status.PENDING -> "Ожидание"
                                     com.gdemo.util.UploadQueue.Status.RUNNING -> "Загрузка"
@@ -635,6 +674,18 @@ fun ItemDetailsScreen(
                         Text(text = "Медиа #${media.id} (${media.mime_type ?: "файл"}): ${media.path}")
                         val aiStatus = media.analysis?.status ?: media.detection?.status
                         Text(text = "Статус AI: ${aiStatus ?: "нет данных"}")
+                        val aiObjects = media.detection?.objects.orEmpty()
+                        if (aiObjects.isNotEmpty()) {
+                            aiObjects.take(3).forEach { obj ->
+                                val conf = (obj.confidence * 100).roundToInt()
+                                Text(text = "• ${obj.label} (${conf}%)")
+                            }
+                        }
+                        media.analysis?.detection_ids?.let { ids ->
+                            if (ids.isNotEmpty()) {
+                                Text(text = "Detections: ${ids.joinToString()}")
+                            }
+                        }
                         val sanitized = ApiClient.sanitizeBaseUrl(baseUrl).trimEnd('/')
                         val fullUrl = "$sanitized/${media.file_url.trimStart('/')}"
                         if ((media.mime_type ?: "").startsWith("image")) {

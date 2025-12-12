@@ -30,6 +30,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,6 +79,42 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
     val hasActiveUploads = queueTasks.any { it.status == UploadQueue.Status.PENDING || it.status == UploadQueue.Status.RUNNING || it.status == UploadQueue.Status.RETRYING }
     LaunchedEffect(hasActiveUploads) {
         isUploading = hasActiveUploads
+    }
+    data class UploadHistoryItem(
+        val id: Long,
+        val label: String,
+        val status: UploadQueue.Status,
+        val attempts: Int,
+        val previewUri: String?,
+        val mediaType: String?
+    )
+    val historySaver = listSaver<List<UploadHistoryItem>, Any>(
+        save = { list -> list.flatMap { listOf(it.id, it.label, it.status.name, it.attempts, it.previewUri ?: "", it.mediaType ?: "") } },
+        restore = { restored ->
+            restored.chunked(6).map {
+                UploadHistoryItem(
+                    id = (it[0] as Number).toLong(),
+                    label = it[1] as String,
+                    status = UploadQueue.Status.valueOf(it[2] as String),
+                    attempts = (it[3] as Number).toInt(),
+                    previewUri = (it[4] as String).ifBlank { null },
+                    mediaType = (it[5] as String).ifBlank { null }
+                )
+            }
+        }
+    )
+    var uploadHistory by rememberSaveable(stateSaver = historySaver) { mutableStateOf(emptyList<UploadHistoryItem>()) }
+    LaunchedEffect(queueTasks) {
+        uploadHistory = uploadHistory.toMutableList().apply {
+            queueTasks.forEach { task ->
+                val idx = indexOfFirst { it.id == task.id }
+                if (idx >= 0) {
+                    this[idx] = this[idx].copy(status = task.status, attempts = task.attempts)
+                } else {
+                    add(UploadHistoryItem(task.id, task.label, task.status, task.attempts, task.previewUri, task.mediaType))
+                }
+            }
+        }
     }
     val api = remember(baseUrl) { ApiClient.create(ApiClient.sanitizeBaseUrl(baseUrl)) }
 
@@ -193,10 +231,10 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                 Button(onClick = { pickMediaLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth()) {
                     Text("Выбрать из галереи")
                 }
-                if (queueTasks.isNotEmpty()) {
+                if (uploadHistory.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Очередь загрузки")
-                        queueTasks.forEach { task ->
+                        uploadHistory.forEach { task ->
                             val statusText = when (task.status) {
                                 UploadQueue.Status.PENDING -> "Ожидание"
                                 UploadQueue.Status.RUNNING -> "Загрузка"
