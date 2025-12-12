@@ -178,8 +178,8 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                 val uploaded = uploadQuickMedia(context, api, uri, stored.scope.ifBlank { "private" }, mediaType, source)
                 var details = runCatching { api.mediaDetails(uploaded.id) }.getOrNull()
                 if (details?.analysis == null && details?.detection == null) {
-                    repeat(4) {
-                        kotlinx.coroutines.delay(1000)
+                    repeat(10) {
+                        delay(1500)
                         details = runCatching { api.mediaDetails(uploaded.id) }.getOrNull()
                         if (details?.analysis != null || details?.detection != null) return@repeat
                     }
