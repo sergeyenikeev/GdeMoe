@@ -54,6 +54,7 @@ import com.gdemo.data.remote.ApiService
 import com.gdemo.util.AnalyticsLogger
 import com.gdemo.util.UploadQueue
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -175,14 +176,21 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
         ) {
             try {
                 val uploaded = uploadQuickMedia(context, api, uri, stored.scope.ifBlank { "private" }, mediaType, source)
-                val details = runCatching { api.mediaDetails(uploaded.id) }.getOrNull()
+                var details = runCatching { api.mediaDetails(uploaded.id) }.getOrNull()
+                if (details?.analysis == null && details?.detection == null) {
+                    repeat(4) {
+                        kotlinx.coroutines.delay(1000)
+                        details = runCatching { api.mediaDetails(uploaded.id) }.getOrNull()
+                        if (details?.analysis != null || details?.detection != null) return@repeat
+                    }
+                }
                 val sanitized = ApiClient.sanitizeBaseUrl(baseUrl).trimEnd('/')
                 val remoteUrl = details?.file_url?.let { "$sanitized/${it.trimStart('/')}" }
-                        val aiStatus = details?.analysis?.status ?: details?.detection?.status ?: uploaded.analysis?.status
-                        val aiLabels = details?.detection?.objects?.take(3)?.map {
-                            val conf = (it.confidence * 100).roundToInt()
-                            "${it.label} (${conf}%)"
-                        } ?: emptyList()
+                val aiStatus = details?.analysis?.status ?: details?.detection?.status ?: uploaded.analysis?.status
+                val aiLabels = details?.detection?.objects?.take(3)?.map {
+                    val conf = (it.confidence * 100).roundToInt()
+                    "${it.label} (${conf}%)"
+                } ?: emptyList()
                 val idx = uploadHistory.indexOfFirst { it.label == label }
                 if (idx >= 0) {
                     uploadHistory[idx] = uploadHistory[idx].copy(
