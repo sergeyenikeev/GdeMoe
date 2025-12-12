@@ -37,11 +37,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.listSaver
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -106,22 +105,7 @@ fun ItemDetailsScreen(
         val previewUri: String?,
         val mediaType: String?
     )
-    val historySaver = listSaver<List<UploadHistoryItem>, Any>(
-        save = { list -> list.flatMap { listOf(it.id, it.label, it.status.name, it.attempts, it.previewUri ?: "", it.mediaType ?: "") } },
-        restore = { restored ->
-            restored.chunked(6).map {
-                UploadHistoryItem(
-                    id = (it[0] as Number).toLong(),
-                    label = it[1] as String,
-                    status = UploadQueue.Status.valueOf(it[2] as String),
-                    attempts = (it[3] as Number).toInt(),
-                    previewUri = (it[4] as String).ifBlank { null },
-                    mediaType = (it[5] as String).ifBlank { null }
-                )
-            }
-        }
-    )
-    var uploadHistory by rememberSaveable(stateSaver = historySaver) { mutableStateOf(emptyList<UploadHistoryItem>()) }
+    val uploadHistory = remember { mutableStateListOf<UploadHistoryItem>() }
     var mediaList by remember { mutableStateOf<List<MediaDto>>(emptyList()) }
     var locations by remember { mutableStateOf<List<LocationDto>>(emptyList()) }
     var selectedLocationIds by remember { mutableStateOf<List<Int>>(emptyList()) }
@@ -153,14 +137,12 @@ fun ItemDetailsScreen(
         isUploading = hasActiveUploads
     }
     LaunchedEffect(queueTasks) {
-        uploadHistory = uploadHistory.toMutableList().apply {
-            queueTasks.forEach { task ->
-                val idx = indexOfFirst { it.id == task.id }
-                if (idx >= 0) {
-                    this[idx] = this[idx].copy(status = task.status, attempts = task.attempts)
-                } else {
-                    add(UploadHistoryItem(task.id, task.label, task.status, task.attempts, task.previewUri, task.mediaType))
-                }
+        queueTasks.forEach { task ->
+            val idx = uploadHistory.indexOfFirst { it.id == task.id }
+            if (idx >= 0) {
+                uploadHistory[idx] = uploadHistory[idx].copy(status = task.status, attempts = task.attempts)
+            } else {
+                uploadHistory.add(UploadHistoryItem(task.id, task.label, task.status, task.attempts, task.previewUri, task.mediaType))
             }
         }
     }

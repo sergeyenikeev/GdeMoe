@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -27,11 +29,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.listSaver
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +45,7 @@ import coil.decode.VideoFrameDecoder
 import com.gdemo.data.local.loadConnection
 import com.gdemo.data.model.CreateItemRequest
 import com.gdemo.data.model.LocationDto
+import com.gdemo.data.model.MediaUploadResponse
 import com.gdemo.data.remote.ApiClient
 import com.gdemo.data.remote.ApiService
 import com.gdemo.util.AnalyticsLogger
@@ -58,6 +60,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okio.source
 import java.io.File
 import java.io.IOException
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,33 +89,29 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
         val status: UploadQueue.Status,
         val attempts: Int,
         val previewUri: String?,
-        val mediaType: String?
+        val mediaType: String?,
+        val mediaId: Int? = null,
+        val remoteUrl: String? = null,
+        val aiStatus: String? = null,
+        val aiLabels: List<String> = emptyList()
     )
-    val historySaver = listSaver<List<UploadHistoryItem>, Any>(
-        save = { list -> list.flatMap { listOf(it.id, it.label, it.status.name, it.attempts, it.previewUri ?: "", it.mediaType ?: "") } },
-        restore = { restored ->
-            restored.chunked(6).map {
-                UploadHistoryItem(
-                    id = (it[0] as Number).toLong(),
-                    label = it[1] as String,
-                    status = UploadQueue.Status.valueOf(it[2] as String),
-                    attempts = (it[3] as Number).toInt(),
-                    previewUri = (it[4] as String).ifBlank { null },
-                    mediaType = (it[5] as String).ifBlank { null }
-                )
-            }
-        }
-    )
-    var uploadHistory by rememberSaveable(stateSaver = historySaver) { mutableStateOf(emptyList<UploadHistoryItem>()) }
+    val uploadHistory = remember { mutableStateListOf<UploadHistoryItem>() }
     LaunchedEffect(queueTasks) {
-        uploadHistory = uploadHistory.toMutableList().apply {
-            queueTasks.forEach { task ->
-                val idx = indexOfFirst { it.id == task.id }
-                if (idx >= 0) {
-                    this[idx] = this[idx].copy(status = task.status, attempts = task.attempts)
-                } else {
-                    add(UploadHistoryItem(task.id, task.label, task.status, task.attempts, task.previewUri, task.mediaType))
-                }
+        queueTasks.forEach { task ->
+            val idx = uploadHistory.indexOfFirst { it.id == task.id }
+            if (idx >= 0) {
+                uploadHistory[idx] = uploadHistory[idx].copy(status = task.status, attempts = task.attempts)
+            } else {
+                uploadHistory.add(
+                    UploadHistoryItem(
+                        id = task.id,
+                        label = task.label,
+                        status = task.status,
+                        attempts = task.attempts,
+                        previewUri = task.previewUri,
+                        mediaType = task.mediaType
+                    )
+                )
             }
         }
     }
@@ -126,13 +125,46 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
     }
 
     fun uploadMedia(uri: Uri, mediaType: String, source: String) {
+        val label = "quick_${mediaType}_${System.currentTimeMillis()}"
         uploadQueue.enqueue(
-            label = "quick_${mediaType}_${System.currentTimeMillis()}",
+            label = label,
             previewUri = uri.toString(),
             mediaType = mediaType
         ) {
             try {
-                uploadQuickMedia(context, api, uri, stored.scope.ifBlank { "private" }, mediaType, source)
+                val uploaded = uploadQuickMedia(context, api, uri, stored.scope.ifBlank { "private" }, mediaType, source)
+                val details = runCatching { api.mediaDetails(uploaded.id) }.getOrNull()
+                val sanitized = ApiClient.sanitizeBaseUrl(baseUrl).trimEnd('/')
+                val remoteUrl = details?.file_url?.let { "$sanitized/${it.trimStart('/')}" }
+                val aiStatus = details?.analysis?.status ?: details?.detection?.status ?: uploaded.analysis?.status
+                val aiLabels = details?.detection?.objects?.take(3)?.map {
+                    val conf = (it.confidence * 100).roundToInt()
+                    "${it.label} (${conf}%)"
+                } ?: emptyList()
+                val idx = uploadHistory.indexOfFirst { it.label == label }
+                if (idx >= 0) {
+                    uploadHistory[idx] = uploadHistory[idx].copy(
+                        mediaId = uploaded.id,
+                        remoteUrl = remoteUrl,
+                        aiStatus = aiStatus,
+                        aiLabels = aiLabels
+                    )
+                } else {
+                    uploadHistory.add(
+                        UploadHistoryItem(
+                            id = System.currentTimeMillis(),
+                            label = label,
+                            status = UploadQueue.Status.SUCCESS,
+                            attempts = 1,
+                            previewUri = uri.toString(),
+                            mediaType = mediaType,
+                            mediaId = uploaded.id,
+                            remoteUrl = remoteUrl,
+                            aiStatus = aiStatus,
+                            aiLabels = aiLabels
+                        )
+                    )
+                }
                 message = "Файл отправлен, откройте в AI Review"
                 AnalyticsLogger.event("quick_add_media_upload", mapOf("type" to mediaType, "source" to source))
                 true
@@ -192,7 +224,8 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
         modifier = Modifier
             .fillMaxSize()
             .padding(paddingValues)
-            .padding(16.dp),
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Быстрое добавление", style = MaterialTheme.typography.headlineSmall)
@@ -233,7 +266,7 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                 }
                 if (uploadHistory.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Очередь загрузки")
+                        Text("История загрузок")
                         uploadHistory.forEach { task ->
                             val statusText = when (task.status) {
                                 UploadQueue.Status.PENDING -> "Ожидание"
@@ -244,7 +277,8 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                             }
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text("${task.label}: $statusText")
-                                task.previewUri?.let { preview ->
+                                val previewSource = task.remoteUrl ?: task.previewUri
+                                previewSource?.let { preview ->
                                     val isVideo = (task.mediaType ?: "").contains("video")
                                     val model: Any = if (isVideo) {
                                         ImageRequest.Builder(context)
@@ -259,6 +293,12 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                                             .fillMaxWidth()
                                             .height(140.dp)
                                     )
+                                }
+                                task.aiStatus?.let { status ->
+                                    Text("AI: $status")
+                                }
+                                if (task.aiLabels.isNotEmpty()) {
+                                    Text(task.aiLabels.joinToString())
                                 }
                             }
                         }
@@ -319,8 +359,8 @@ private suspend fun uploadQuickMedia(
     scope: String,
     mediaType: String,
     source: String
-) {
-    withContext(Dispatchers.IO) {
+) : MediaUploadResponse {
+    return withContext(Dispatchers.IO) {
         val cr = context.contentResolver
         val mime = cr.getType(uri) ?: if (mediaType == "video") "video/mp4" else "image/jpeg"
         val ext = when {
