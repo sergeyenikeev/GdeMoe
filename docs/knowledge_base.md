@@ -14,3 +14,10 @@
 
 GitHub:
 - origin: git@github.com:sergeyenikeev/GdeMoe.git (account sergeyenikeev, CI via GitHub Actions).
+
+## Обновление 2025-12-12
+- Backend: схемы Pydantic переведены на `ConfigDict(from_attributes=True)` (ai.py, item.py, location.py, user.py) — предупреждения о депреке убраны.
+- Mobile: очищены предупреждения в `GdeNavHost` (убраны `!!`/лишние safe-call) и `ItemDetailsScreen` (теневой `status`, dropdown), сборка/тесты проходят.
+- Прогоны: `python -m pytest` (backend 10 тестов), `./gradlew testDebugUnitTest`, `./gradlew assembleDebug`.
+- Docker: `docker compose -f backend/docker/docker-compose.yml build` собран образ API.
+- Репозиторий: изменения запушены в `origin/main` (sergeyenikeev/GdeMoe).
