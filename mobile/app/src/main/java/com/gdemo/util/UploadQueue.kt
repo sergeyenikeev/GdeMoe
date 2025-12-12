@@ -21,15 +21,17 @@ class UploadQueue(
         val id: Long,
         val label: String,
         val attempts: Int = 0,
-        val status: Status = Status.PENDING
+        val status: Status = Status.PENDING,
+        val previewUri: String? = null,
+        val mediaType: String? = null
     )
 
     private val _tasks = MutableStateFlow<List<TaskState>>(emptyList())
     val tasks: StateFlow<List<TaskState>> = _tasks.asStateFlow()
 
-    fun enqueue(label: String, work: suspend () -> Boolean) {
+    fun enqueue(label: String, previewUri: String? = null, mediaType: String? = null, work: suspend () -> Boolean) {
         val id = System.currentTimeMillis() + Random.nextLong(0, 1000)
-        _tasks.update { it + TaskState(id = id, label = label) }
+        _tasks.update { it + TaskState(id = id, label = label, previewUri = previewUri, mediaType = mediaType) }
         scope.launch {
             processTask(id, label, work)
         }

@@ -36,6 +36,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.decode.VideoFrameDecoder
 import com.gdemo.data.local.loadConnection
 import com.gdemo.data.model.CreateItemRequest
 import com.gdemo.data.model.LocationDto
@@ -85,14 +88,18 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
     }
 
     fun uploadMedia(uri: Uri, mediaType: String, source: String) {
-        uploadQueue.enqueue("quick_${mediaType}_${System.currentTimeMillis()}") {
+        uploadQueue.enqueue(
+            label = "quick_${mediaType}_${System.currentTimeMillis()}",
+            previewUri = uri.toString(),
+            mediaType = mediaType
+        ) {
             try {
                 uploadQuickMedia(context, api, uri, stored.scope.ifBlank { "private" }, mediaType, source)
-                message = "D­D_DúD'DøD«D_ D¨¥?D_DýDæ¥%D1 Dý AI Review"
+                message = "Файл отправлен, откройте в AI Review"
                 AnalyticsLogger.event("quick_add_media_upload", mapOf("type" to mediaType, "source" to source))
                 true
             } catch (e: Exception) {
-                message = "Dz¥^D,DñD§Dø DúDøD3¥?¥ŸDúD,D¯D,¥?¥O: ${e.localizedMessage}"
+                message = "Ошибка загрузки: ${e.localizedMessage}"
                 AnalyticsLogger.event("quick_add_media_error", mapOf("error" to e.localizedMessage))
                 false
             }
@@ -197,7 +204,25 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                                 UploadQueue.Status.SUCCESS -> "Готово"
                                 UploadQueue.Status.FAILED -> "Ошибка"
                             }
-                            Text("${task.label}: $statusText")
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("${task.label}: $statusText")
+                                task.previewUri?.let { preview ->
+                                    val isVideo = (task.mediaType ?: "").contains("video")
+                                    val model: Any = if (isVideo) {
+                                        ImageRequest.Builder(context)
+                                            .data(preview)
+                                            .decoderFactory(VideoFrameDecoder.Factory())
+                                            .build()
+                                    } else preview
+                                    AsyncImage(
+                                        model = model,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(140.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }

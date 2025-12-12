@@ -219,7 +219,7 @@ fun ItemDetailsScreen(
     }
 
     fun attachMedia(uri: Uri, mediaType: String, source: String = "gallery") {
-        uploadQueue.enqueue("item_${idInt}_$mediaType") {
+        uploadQueue.enqueue("item_${idInt}_$mediaType", previewUri = uri.toString(), mediaType = mediaType) {
             val uploaded = uploadUri(
                 context = context,
                 uri = uri,
@@ -231,10 +231,10 @@ fun ItemDetailsScreen(
             )
             if (uploaded != null) {
                 loadMedia()
-                message = "DoDæD'D,Dø D¨¥?D,D§¥?DæD¨D¯DæD«D_"
+                message = "Файл отправлен, ждём анализ"
                 true
             } else {
-                message = "D?Dæ ¥ŸD'DøD¯D_¥?¥O DúDøD3¥?¥ŸDúD,¥,¥O ¥,DøD1D¯"
+                message = "Не удалось загрузить файл, попробуйте ещё раз"
                 false
             }
         }
@@ -594,7 +594,7 @@ fun ItemDetailsScreen(
                     }
                     if (queueTasks.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Очередь загрузки")
+                            Text("История загрузок и анализов")
                             queueTasks.forEach { task ->
                                 val statusText = when (task.status) {
                                     com.gdemo.util.UploadQueue.Status.PENDING -> "Ожидание"
@@ -603,7 +603,25 @@ fun ItemDetailsScreen(
                                     com.gdemo.util.UploadQueue.Status.SUCCESS -> "Готово"
                                     com.gdemo.util.UploadQueue.Status.FAILED -> "Ошибка"
                                 }
-                                Text("${task.label}: $statusText")
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("${task.label}: $statusText")
+                                    task.previewUri?.let { preview ->
+                                        val isVideo = (task.mediaType ?: "").contains("video")
+                                        val model: Any = if (isVideo) {
+                                            ImageRequest.Builder(context)
+                                                .data(preview)
+                                                .decoderFactory(VideoFrameDecoder.Factory())
+                                                .build()
+                                        } else preview
+                                        AsyncImage(
+                                            model = model,
+                                            contentDescription = null,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(160.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -614,7 +632,9 @@ fun ItemDetailsScreen(
             } else {
                 items(mediaList) { media ->
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(text = "• #${media.id} (${media.mime_type ?: "файл"}): ${media.path}")
+                        Text(text = "Медиа #${media.id} (${media.mime_type ?: "файл"}): ${media.path}")
+                        val aiStatus = media.analysis?.status ?: media.detection?.status
+                        Text(text = "Статус AI: ${aiStatus ?: "нет данных"}")
                         val sanitized = ApiClient.sanitizeBaseUrl(baseUrl).trimEnd('/')
                         val fullUrl = "$sanitized/${media.file_url.trimStart('/')}"
                         if ((media.mime_type ?: "").startsWith("image")) {
