@@ -75,6 +75,7 @@ import okio.source
 import java.io.File
 import java.io.IOException
 
+@Suppress("DEPRECATION")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ItemDetailsScreen(
@@ -330,8 +331,8 @@ fun ItemDetailsScreen(
     LaunchedEffect(mediaList.map { it.id to (it.analysis?.status ?: it.detection?.status) }) {
         mediaList
             .filter {
-                val status = it.analysis?.status ?: it.detection?.status
-                status == "pending" || status == "in_progress"
+                val analysisStatus = it.analysis?.status ?: it.detection?.status
+                analysisStatus == "pending" || analysisStatus == "in_progress"
             }
             .forEach { media ->
                 delay(2000)
@@ -791,4 +792,3 @@ private suspend fun uploadUri(
         }
     }
 }
-

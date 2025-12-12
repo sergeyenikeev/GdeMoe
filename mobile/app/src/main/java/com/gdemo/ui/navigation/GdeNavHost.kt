@@ -77,27 +77,26 @@ fun GdeNavHost(isOnboarded: Boolean, onFinishOnboarding: () -> Unit, sharedConte
                 val api = ApiClient.create(ApiClient.sanitizeBaseUrl(stored.baseUrl))
                 AnalyticsLogger.event("share_received", mapOf("type" to sharedContent.mimeType, "url" to sharedContent.url))
                 if (!sharedContent.url.isNullOrBlank()) {
+                    val sharedUrl = sharedContent.url
                     val imported = runCatching {
-                        api.importProductLink(ProductImportRequest(url = sharedContent.url, source = "mobile_share"))
+                        api.importProductLink(ProductImportRequest(url = sharedUrl, source = "mobile_share"))
                     }.getOrNull()
                     val attrs = mutableMapOf<String, Any?>()
                     imported?.attributes?.let { attrs.putAll(it) }
-                    if (!sharedContent.title.isNullOrBlank()) {
-                        attrs.putIfAbsent("source_title", sharedContent.title!!)
-                    }
+                    sharedContent.title?.takeIf { it.isNotBlank() }?.let { attrs.putIfAbsent("source_title", it) }
                     imported?.image_url?.let { attrs["image_url"] = it }
                     val links = mutableListOf<String>()
-                    sharedContent.url?.let { links.add(it) }
+                    links.add(sharedUrl)
                     imported?.product_url?.let { if (!links.contains(it)) links.add(it) }
                     val created = api.createItem(
                         CreateItemRequest(
-                            title = imported?.title ?: sharedContent.title ?: sharedContent.url!!,
+                            title = imported?.title ?: sharedContent.title ?: sharedUrl,
                             status = "new",
                             description = imported?.description,
                             scope = stored.scope,
                             price = imported?.price,
                             currency = imported?.currency,
-                            store = sharedContent.url?.toUri()?.host,
+                            store = sharedUrl.toUri().host,
                             attributes = attrs.ifEmpty { null },
                             links = links
                         )

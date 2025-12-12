@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from app.models.enums import AIDetectionStatus, AIDetectionDecision, AIDetectionReviewAction
 
@@ -30,8 +30,7 @@ class AIDetectionOut(BaseModel):
     thumb_path: str | None = None
     objects: list[AIDetectionObjectOut] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AIDetectionActionRequest(BaseModel):
