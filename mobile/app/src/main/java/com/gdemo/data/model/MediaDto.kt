@@ -3,7 +3,12 @@ package com.gdemo.data.model
 data class DetectionObjectDto(
     val label: String,
     val confidence: Double,
-    val bbox: Map<String, Any>?
+    val bbox: Map<String, Any>?,
+    val suggested_location_id: Int? = null,
+    val decision: String? = null,
+    val linked_item_id: Int? = null,
+    val linked_location_id: Int? = null,
+    val candidates: List<Map<String, Any?>> = emptyList()
 )
 
 data class DetectionDto(

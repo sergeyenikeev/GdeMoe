@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import get_db
 from app.core.config import settings
 from app.models.ai import AIDetection, AIDetectionObject, AIDetectionReview
+from app.models.media import MediaUploadHistory
 from app.models.enums import (
     AIDetectionDecision,
     AIDetectionReviewAction,
@@ -20,6 +21,7 @@ from app.schemas.ai import (
     AIDetectionObjectOut,
     AIDetectionReviewRequest,
     AITaskRequest,
+    AIDetectionObjectUpdate,
 )
 from app.services.ai.pipeline import analyze_media
 from app.services.ai.video import analyze_video
@@ -32,10 +34,11 @@ logger = logging.getLogger(__name__)
 async def request_analysis(payload: AITaskRequest, db: AsyncSession = Depends(get_db)):
     # If external AI service configured, enqueue there
     if settings.ai_service_url:
-        detection = AIDetection(media_id=payload.media_id, status=AIDetectionStatus.PENDING)
+        detection = AIDetection(media_id=payload.media_id, status=AIDetectionStatusEnum.PENDING)
         db.add(detection)
         await db.commit()
         await db.refresh(detection)
+        await _update_upload_history(db, detection)
         async with httpx.AsyncClient(timeout=30) as client:
             try:
                 await client.post(
@@ -58,6 +61,7 @@ async def request_analysis(payload: AITaskRequest, db: AsyncSession = Depends(ge
             detail=f"AI dependencies missing on backend: {exc}. Install torch/ultralytics/open_clip.",
         ) from exc
 
+    await _update_upload_history(db, detection)
     # Reload with objects eager-loaded to avoid async lazy-load issues
     return await _load_detection(db, detection.id)
 
@@ -66,6 +70,10 @@ async def request_analysis(payload: AITaskRequest, db: AsyncSession = Depends(ge
 async def request_video_analysis(payload: AITaskRequest, db: AsyncSession = Depends(get_db)):
     # Samples frames and runs image pipeline
     detection_ids = await analyze_video(payload.media_id, db)
+    if detection_ids:
+        latest = await db.get(AIDetection, detection_ids[-1])
+        if latest:
+            await _update_upload_history(db, latest)
     return {"media_id": payload.media_id, "detections": detection_ids}
 
 
@@ -95,20 +103,7 @@ async def list_detections(
                 completed_at=det.completed_at,
                 media_path=det.media.path if det.media else None,
                 thumb_path=det.media.thumb_path if det.media else None,
-                objects=[
-                    AIDetectionObjectOut(
-                        id=obj.id,
-                        label=obj.label,
-                        confidence=float(obj.confidence),
-                        bbox=obj.bbox,
-                        suggested_location_id=obj.suggested_location_id,
-                        decision=obj.decision,
-                        candidates=[
-                            {"item_id": c.item_id, "score": float(c.score)} for c in obj.candidates
-                        ],
-                    )
-                    for obj in det.objects
-                ],
+                objects=[_object_out(obj) for obj in det.objects],
             )
         )
     return out
@@ -124,10 +119,15 @@ async def accept_detection(
         raise HTTPException(status_code=404, detail="Detection not found")
     detection.status = AIDetectionStatusEnum.DONE
     detection.completed_at = datetime.utcnow()
+    values: dict = {"decision": AIDetectionDecision.ACCEPTED, "decided_at": datetime.utcnow()}
+    if body.item_id is not None:
+        values["linked_item_id"] = body.item_id
+    if body.location_id is not None:
+        values["linked_location_id"] = body.location_id
     await db.execute(
         update(AIDetectionObject)
         .where(AIDetectionObject.detection_id == detection_id)
-        .values(decision=AIDetectionDecision.ACCEPTED, decided_at=datetime.utcnow())
+        .values(**values)
     )
     db.add(
         AIDetectionReview(
@@ -138,6 +138,7 @@ async def accept_detection(
     )
     await db.commit()
     await db.refresh(detection)
+    await _update_upload_history(db, detection)
     return await _load_detection(db, detection_id)
 
 
@@ -151,10 +152,15 @@ async def reject_detection(
         raise HTTPException(status_code=404, detail="Detection not found")
     detection.status = AIDetectionStatusEnum.FAILED
     detection.completed_at = datetime.utcnow()
+    values: dict = {"decision": AIDetectionDecision.REJECTED, "decided_at": datetime.utcnow()}
+    if body and body.item_id is not None:
+        values["linked_item_id"] = body.item_id
+    if body and body.location_id is not None:
+        values["linked_location_id"] = body.location_id
     await db.execute(
         update(AIDetectionObject)
         .where(AIDetectionObject.detection_id == detection_id)
-        .values(decision=AIDetectionDecision.REJECTED, decided_at=datetime.utcnow())
+        .values(**values)
     )
     db.add(
         AIDetectionReview(
@@ -165,6 +171,7 @@ async def reject_detection(
     )
     await db.commit()
     await db.refresh(detection)
+    await _update_upload_history(db, detection)
     return await _load_detection(db, detection_id)
 
 
@@ -187,6 +194,37 @@ async def add_review_log(
     return {"status": "ok"}
 
 
+@router.patch("/objects/{object_id}", response_model=AIDetectionObjectOut)
+async def update_detection_object(
+    object_id: int,
+    body: AIDetectionObjectUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    logger.info(
+        "ai.detection.object.update id=%s item_id=%s location_id=%s decision=%s",
+        object_id,
+        body.item_id,
+        body.location_id,
+        body.decision,
+    )
+    obj = await db.get(AIDetectionObject, object_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Detection object not found")
+    if body.item_id is not None:
+        obj.linked_item_id = body.item_id
+    if body.location_id is not None:
+        obj.linked_location_id = body.location_id
+    if body.decision is not None:
+        obj.decision = body.decision
+    obj.decided_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(obj)
+    parent = await db.get(AIDetection, obj.detection_id)
+    if parent:
+        await _update_upload_history(db, parent)
+    return _object_out(obj)
+
+
 async def _load_detection(db: AsyncSession, detection_id: int) -> AIDetectionOut:
     result = await db.execute(
         select(AIDetection)
@@ -205,16 +243,56 @@ async def _load_detection(db: AsyncSession, detection_id: int) -> AIDetectionOut
         completed_at=det.completed_at,
         media_path=det.media.path if det.media else None,
         thumb_path=det.media.thumb_path if det.media else None,
-        objects=[
-            AIDetectionObjectOut(
-                id=obj.id,
-                label=obj.label,
-                confidence=float(obj.confidence),
-                bbox=obj.bbox,
-                suggested_location_id=obj.suggested_location_id,
-                decision=obj.decision,
-                candidates=[{"item_id": c.item_id, "score": float(c.score)} for c in obj.candidates],
-            )
+        objects=[_object_out(obj) for obj in det.objects],
+    )
+
+
+def _object_out(obj: AIDetectionObject) -> AIDetectionObjectOut:
+    return AIDetectionObjectOut(
+        id=obj.id,
+        label=obj.label,
+        confidence=float(obj.confidence),
+        bbox=obj.bbox,
+        suggested_location_id=obj.suggested_location_id,
+        decision=obj.decision,
+        linked_item_id=obj.linked_item_id,
+        linked_location_id=obj.linked_location_id,
+        candidates=[{"item_id": c.item_id, "score": float(c.score)} for c in obj.candidates],
+    )
+
+
+async def _update_upload_history(db: AsyncSession, detection: AIDetection) -> None:
+    loaded = await db.execute(
+        select(AIDetection)
+        .where(AIDetection.id == detection.id)
+        .options(selectinload(AIDetection.objects))
+    )
+    det = loaded.scalar_one_or_none()
+    if det is None:
+        return
+    result = await db.execute(
+        select(MediaUploadHistory)
+        .where(MediaUploadHistory.media_id == det.media_id)
+        .order_by(MediaUploadHistory.created_at.desc())
+        .limit(1)
+    )
+    entry = result.scalar_one_or_none()
+    if not entry:
+        return
+    entry.ai_status = det.status.value if hasattr(det.status, "value") else str(det.status)
+    entry.ai_summary = {
+        "detection_id": det.id,
+        "objects": [
+            {
+                "id": obj.id,
+                "label": obj.label,
+                "confidence": float(obj.confidence),
+                "linked_item_id": obj.linked_item_id,
+                "linked_location_id": obj.linked_location_id,
+                "decision": obj.decision,
+            }
             for obj in det.objects
         ],
-    )
+    }
+    entry.detection_id = det.id
+    await db.commit()

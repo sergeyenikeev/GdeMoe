@@ -37,6 +37,8 @@ class AIDetectionObject(Base):
     )
     decided_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    linked_item_id: Mapped[int | None] = mapped_column(ForeignKey("item.id"), nullable=True)
+    linked_location_id: Mapped[int | None] = mapped_column(ForeignKey("location.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     detection = relationship("AIDetection", back_populates="objects")

@@ -12,8 +12,11 @@ import com.gdemo.data.model.ProductImportRequest
 import com.gdemo.data.model.ProductImportResponse
 import com.gdemo.data.model.ReceiptImportResponse
 import com.gdemo.data.model.AiDetectionDto
+import com.gdemo.data.model.AiDetectionObjectDto
 import com.gdemo.data.model.AiDetectionActionRequest
 import com.gdemo.data.model.AiDetectionReviewLogRequest
+import com.gdemo.data.model.AiDetectionObjectUpdateRequest
+import com.gdemo.data.model.UploadHistoryEntryDto
 import retrofit2.http.Field
 import retrofit2.http.FormUrlEncoded
 import retrofit2.http.Body
@@ -113,6 +116,9 @@ interface ApiService {
     @GET("/api/v1/media/recent")
     suspend fun recentMedia(@Query("scope") scope: String = "public"): List<MediaDto>
 
+    @GET("/api/v1/media/history")
+    suspend fun uploadHistory(@Query("limit") limit: Int = 50): List<UploadHistoryEntryDto>
+
     @GET("/api/v1/media/{id}")
     suspend fun mediaDetails(@Path("id") id: Int): MediaDto
 
@@ -136,4 +142,10 @@ interface ApiService {
         @Path("id") id: Int,
         @Body body: AiDetectionReviewLogRequest
     ): Map<String, String>
+
+    @PATCH("/api/v1/ai/objects/{id}")
+    suspend fun updateDetectionObject(
+        @Path("id") id: Int,
+        @Body body: AiDetectionObjectUpdateRequest
+    ): AiDetectionObjectDto
 }

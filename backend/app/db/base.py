@@ -8,6 +8,6 @@ from app.models.item import Item  # noqa
 from app.models.batch import ItemBatch  # noqa
 from app.models.tag import Tag, ItemTag  # noqa
 from app.models.relations import ItemRelation, ItemNote, ItemHistory  # noqa
-from app.models.media import Media, ItemMedia  # noqa
+from app.models.media import Media, ItemMedia, MediaUploadHistory  # noqa
 from app.models.todo import Todo  # noqa
 from app.models.ai import AIDetection, AIDetectionObject, AIDetectionCandidate, AIDetectionReview  # noqa

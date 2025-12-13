@@ -1,23 +1,10 @@
-# База знаний Codex
+# База знаний (Codex)
 
-- Покрывать весь код автотестами и запускать их до и после изменений (при отсутствии тестов — добавлять минимальные проверки и фиксировать невозможность запуска).
-- Вести и пополнять эту базу знаний, фиксируя соглашения и правила работы.
-- После каждого набора изменений сохранять всё в GitHub (git add/commit/push).
-- Добавлять логи в основные функции/методы и подробно логировать действия пользователя в мобильном приложении; при исправлении ошибок сверять логи.
-- Исключать из GitHub пароли, секреты и чувствительные данные.
-- При каждой загрузке в GitHub запускать юнит-тесты.
-- Вести документацию о сделанных и предстоящих задачах.
-- Собирать и учитывать статистику действий пользователя для улучшения UX/UI.
-- CI: GitHub Actions `.github/workflows/ci.yml` — запускает `./gradlew testDebugUnitTest` при push/PR.
-- При необходимости обновления APK — выполняю сборку сам (`./gradlew assembleDebug`).
-- При необходимости сборки и перезапуска backend в Docker — выполняю сам (`docker compose build api && docker compose up -d api`).
-
-GitHub:
-- origin: git@github.com:sergeyenikeev/GdeMoe.git (account sergeyenikeev, CI via GitHub Actions).
-
-## Обновление 2025-12-12
-- Backend: схемы Pydantic переведены на `ConfigDict(from_attributes=True)` (ai.py, item.py, location.py, user.py) — предупреждения о депреке убраны.
-- Mobile: очищены предупреждения в `GdeNavHost` (убраны `!!`/лишние safe-call) и `ItemDetailsScreen` (теневой `status`, dropdown), сборка/тесты проходят.
-- Прогоны: `python -m pytest` (backend 10 тестов), `./gradlew testDebugUnitTest`, `./gradlew assembleDebug`.
-- Docker: `docker compose -f backend/docker/docker-compose.yml build` собран образ API.
-- Репозиторий: изменения запушены в `origin/main` (sergeyenikeev/GdeMoe).
+- Никогда не трогаем `notouch.txt`.
+- Тесты: backend `cd backend && python -m pytest`; mobile `cd mobile && ./gradlew testDebugUnitTest`; сборка APK `./gradlew assembleDebug`.
+- Миграции: новые изменения в БД выкатываем через `alembic upgrade head` (после добавления файла в `backend/alembic/versions`).
+- Логи: на мобильном используем `AnalyticsLogger.event/debug/screen` — логи уходят в backend `/api/v1/logs` плюс в Logcat.
+- Работа с AI: объекты детекции имеют `linked_item_id`/`linked_location_id`; редактирование через PATCH `/api/v1/ai/objects/{id}`.
+- Журнал загрузок: `GET /api/v1/media/history` возвращает статус загрузки, превью, AI-резюме; модель `MediaUploadHistory`.
+- Коммуникация с API: всегда дергать `ApiClient.sanitizeBaseUrl` перед созданием Retrofit клиента.
+- Сохранение в git: перед коммитом — прогнать тесты, не добавлять чувствительные данные, не коммитить `notouch.txt`.

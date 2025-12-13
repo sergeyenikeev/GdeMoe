@@ -1,10 +1,10 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Numeric, func, Enum
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Numeric, func, Enum, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
-from app.models.enums import MediaType
+from app.models.enums import MediaType, UploadStatus
 
 
 class Media(Base):
@@ -34,3 +34,29 @@ class ItemMedia(Base):
 
     item = relationship("Item", back_populates="media_links")
     media = relationship("Media", back_populates="items")
+
+
+class MediaUploadHistory(Base):
+    __tablename__ = "mediauploadhistory"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    media_id: Mapped[int | None] = mapped_column(ForeignKey("media.id"), nullable=True)
+    detection_id: Mapped[int | None] = mapped_column(ForeignKey("aidetection.id"), nullable=True)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("workspace.id"), nullable=False)
+    owner_user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False)
+    media_type: Mapped[MediaType] = mapped_column(
+        Enum(MediaType, values_callable=lambda x: [e.value for e in x])
+    )
+    status: Mapped[UploadStatus] = mapped_column(
+        Enum(UploadStatus, values_callable=lambda x: [e.value for e in x]),
+        default=UploadStatus.PENDING,
+    )
+    source: Mapped[str | None] = mapped_column(String(128))
+    ai_status: Mapped[str | None] = mapped_column(String(64))
+    ai_summary: Mapped[dict | None] = mapped_column(JSON)
+    path: Mapped[str | None] = mapped_column(String(1024))
+    thumb_path: Mapped[str | None] = mapped_column(String(1024))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    media = relationship("Media")

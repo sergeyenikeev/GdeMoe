@@ -17,6 +17,8 @@ class AIDetectionObjectOut(BaseModel):
     bbox: dict | None = None
     suggested_location_id: int | None = None
     decision: AIDetectionDecision
+    linked_item_id: int | None = None
+    linked_location_id: int | None = None
     candidates: list[dict] = Field(default_factory=list)
 
 
@@ -41,3 +43,9 @@ class AIDetectionActionRequest(BaseModel):
 class AIDetectionReviewRequest(BaseModel):
     action: AIDetectionReviewAction
     payload: dict | None = None
+
+
+class AIDetectionObjectUpdate(BaseModel):
+    item_id: int | None = None
+    location_id: int | None = None
+    decision: AIDetectionDecision | None = None

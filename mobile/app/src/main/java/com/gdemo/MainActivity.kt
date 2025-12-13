@@ -14,12 +14,14 @@ import androidx.compose.runtime.setValue
 import com.gdemo.data.model.SharedContent
 import com.gdemo.ui.navigation.GdeNavHost
 import com.gdemo.ui.theme.GdeMoeTheme
+import com.gdemo.util.AnalyticsLogger
 
 class MainActivity : ComponentActivity() {
     private var sharedContent: SharedContent? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AnalyticsLogger.init(applicationContext)
         sharedContent = extractSharedContent(intent)
         setContent {
             GdeMoeApp(sharedContent)

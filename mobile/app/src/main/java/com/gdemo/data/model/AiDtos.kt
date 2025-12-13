@@ -7,6 +7,8 @@ data class AiDetectionObjectDto(
     val bbox: Map<String, Any?>? = null,
     val suggested_location_id: Int? = null,
     val decision: String,
+    val linked_item_id: Int? = null,
+    val linked_location_id: Int? = null,
     val candidates: List<Map<String, Any?>> = emptyList()
 )
 
@@ -29,4 +31,10 @@ data class AiDetectionActionRequest(
 data class AiDetectionReviewLogRequest(
     val action: String,
     val payload: Map<String, Any?>? = null
+)
+
+data class AiDetectionObjectUpdateRequest(
+    val item_id: Int? = null,
+    val location_id: Int? = null,
+    val decision: String? = null
 )

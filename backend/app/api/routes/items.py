@@ -215,6 +215,10 @@ def _serialize_media(media: Media, detection: AIDetection | None, objects: list[
                     "label": obj.label,
                     "confidence": float(obj.confidence),
                     "bbox": obj.bbox,
+                    "suggested_location_id": obj.suggested_location_id,
+                    "decision": obj.decision,
+                    "linked_item_id": obj.linked_item_id,
+                    "linked_location_id": obj.linked_location_id,
                 }
                 for obj in objects
             ],

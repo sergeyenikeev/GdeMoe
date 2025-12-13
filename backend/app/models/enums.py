@@ -42,6 +42,13 @@ class MediaType(str, enum.Enum):
     DOCUMENT = "document"
 
 
+class UploadStatus(str, enum.Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
 class AIDetectionStatus(str, enum.Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
