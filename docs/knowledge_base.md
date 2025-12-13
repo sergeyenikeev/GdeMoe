@@ -8,3 +8,4 @@
 - Журнал загрузок: `GET /api/v1/media/history` возвращает статус загрузки, превью, AI-резюме; модель `MediaUploadHistory`.
 - Коммуникация с API: всегда дергать `ApiClient.sanitizeBaseUrl` перед созданием Retrofit клиента.
 - Сохранение в git: перед коммитом — прогнать тесты, не добавлять чувствительные данные, не коммитить `notouch.txt`.
+- Docker backend: перезапускать командой `cd backend/docker && docker compose build api && docker compose up -d api` (если есть орфаны — добавить `--remove-orphans`). После миграций обязательно `alembic upgrade head`.
