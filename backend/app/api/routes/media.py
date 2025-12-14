@@ -350,34 +350,6 @@ async def upload_media(
         raise
 
 
-@router.get("/{media_id}")
-async def get_media(media_id: int, db: AsyncSession = Depends(get_db)):
-    media = await db.get(Media, media_id)
-    if not media:
-        raise HTTPException(status_code=404, detail="Media not found")
-    det, objects = await _latest_detection(db, media_id)
-    return _serialize_media(media, det, objects)
-
-
-@router.get("/recent")
-async def recent_media(scope: str = "public", limit: int = 20, db: AsyncSession = Depends(get_db)):
-    stmt = (
-        select(Media)
-        .order_by(Media.id.desc())
-        .limit(limit)
-    )
-    rows = (await db.execute(stmt)).scalars().all()
-    result = []
-    for m in rows:
-        if scope == "public" and m.path.startswith("private/"):
-            continue
-        if scope == "private" and not m.path.startswith("private/"):
-            continue
-        det, objects = await _latest_detection(db, m.id)
-        result.append(_serialize_media(m, det, objects))
-    return result
-
-
 @router.get("/history", response_model=list[MediaUploadHistoryOut])
 async def upload_history(
     owner_user_id: int | None = None,
@@ -424,6 +396,25 @@ async def upload_history(
     return result
 
 
+@router.get("/recent")
+async def recent_media(scope: str = "public", limit: int = 20, db: AsyncSession = Depends(get_db)):
+    stmt = (
+        select(Media)
+        .order_by(Media.id.desc())
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    result = []
+    for m in rows:
+        if scope == "public" and m.path.startswith("private/"):
+            continue
+        if scope == "private" and not m.path.startswith("private/"):
+            continue
+        det, objects = await _latest_detection(db, m.id)
+        result.append(_serialize_media(m, det, objects))
+    return result
+
+
 @router.get("/file/{media_id}")
 async def get_media_file(
     media_id: int,
@@ -443,3 +434,12 @@ async def get_media_file(
         raise HTTPException(status_code=404, detail="File not found on disk")
     media_type = "image/jpeg" if thumb else media.mime_type
     return FileResponse(full_path, media_type=media_type, filename=full_path.name)
+
+
+@router.get("/{media_id}")
+async def get_media(media_id: int, db: AsyncSession = Depends(get_db)):
+    media = await db.get(Media, media_id)
+    if not media:
+        raise HTTPException(status_code=404, detail="Media not found")
+    det, objects = await _latest_detection(db, media_id)
+    return _serialize_media(media, det, objects)
