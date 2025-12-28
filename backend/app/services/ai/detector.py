@@ -4,10 +4,15 @@ Lazy-loads model to avoid heavy imports on startup.
 Фолбэк контурный детектор, если веса YOLO недоступны.
 """
 
+import logging
 from functools import lru_cache
 from typing import List, Tuple
 
 import numpy as np
+
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class DetectedObject:
@@ -27,15 +32,18 @@ def _load_model():
     import os
     from pathlib import Path
 
-    cache_file = Path(os.path.expanduser("~/.cache/ultralytics/assets/yolov8n.pt"))
-    if not cache_file.exists():
-        print(f"[ai] YOLO weights not cached at {cache_file}, skipping detection")
+    default_weights = Path(os.path.expanduser("~/.cache/ultralytics/assets/yolov8n.pt"))
+    weights_path = Path(settings.ai_yolo_weights_path) if settings.ai_yolo_weights_path else default_weights
+    if not weights_path.is_absolute():
+        weights_path = Path.cwd() / weights_path
+    if not weights_path.exists():
+        logger.warning("YOLO weights not found at %s, skipping detection", weights_path)
         return None
 
     try:
-        return YOLO(str(cache_file))
+        return YOLO(str(weights_path))
     except Exception as exc:  # noqa: BLE001
-        print(f"[ai] failed to load YOLO weights: {exc}")
+        logger.warning("failed to load YOLO weights: %s", exc)
         return None
 
 
@@ -66,7 +74,7 @@ def detect_objects(image_array: np.ndarray, conf: float = 0.25) -> List[Detected
     try:
         model = _load_model()
     except Exception as exc:  # noqa: BLE001
-        print(f"[ai] detector unavailable: {exc}")
+        logger.warning("detector unavailable: %s", exc)
         return _fallback_detect(image_array)
     if model is None:
         return _fallback_detect(image_array)

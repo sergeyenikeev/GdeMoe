@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     video_max_frames: int = 3
 
     ai_service_url: str | None = None
+    ai_yolo_weights_path: str | None = None
 
     @computed_field
     @property

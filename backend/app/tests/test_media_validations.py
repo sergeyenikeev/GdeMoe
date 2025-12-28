@@ -13,6 +13,7 @@ def test_sanitize_segment_replaces_bad_chars():
     [
         ("image/jpeg", MediaType.PHOTO),
         ("image/png", MediaType.PHOTO),
+        ("video/mp4", MediaType.PHOTO),
         ("video/mp4", MediaType.VIDEO),
         (None, MediaType.PHOTO),
     ],
@@ -26,9 +27,36 @@ def test_validate_mime_allows_whitelist(mime, media_type):
     ("mime", "media_type"),
     [
         ("text/plain", MediaType.PHOTO),
-        ("video/mp4", MediaType.PHOTO),
     ],
 )
 def test_validate_mime_rejects_bad(mime, media_type):
     with pytest.raises(Exception):
         media._validate_mime(mime, media_type)
+
+
+@pytest.mark.parametrize(
+    ("stride", "max_frames"),
+    [
+        (1, 1),
+        (10, None),
+        (None, 5),
+        (None, None),
+    ],
+)
+def test_validate_video_params_allows_positive(stride, max_frames):
+    result = media._validate_video_params(stride, max_frames)
+    assert result == (stride, max_frames)
+
+
+@pytest.mark.parametrize(
+    ("stride", "max_frames"),
+    [
+        (0, 1),
+        (-1, 1),
+        (1, 0),
+        (1, -5),
+    ],
+)
+def test_validate_video_params_rejects_non_positive(stride, max_frames):
+    with pytest.raises(Exception):
+        media._validate_video_params(stride, max_frames)

@@ -9,6 +9,9 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import get_db
 from app.core.config import settings
 from app.models.ai import AIDetection, AIDetectionObject, AIDetectionReview
+from app.models.item import Item
+from app.models.location import Location
+from app.models.media import Media
 from app.models.media import MediaUploadHistory
 from app.models.enums import (
     AIDetectionDecision,
@@ -28,6 +31,20 @@ from app.services.ai.video import analyze_video
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 logger = logging.getLogger(__name__)
+
+
+async def _ensure_exists(db: AsyncSession, model, obj_id: int | None, label: str) -> None:
+    if obj_id is None:
+        return
+    stmt = select(model.id).where(model.id == obj_id)
+    exists = (await db.execute(stmt)).scalar_one_or_none()
+    if exists is None:
+        raise HTTPException(status_code=404, detail=f"{label} not found")
+
+
+async def _resolve_review_user_id(db: AsyncSession, detection: AIDetection) -> int | None:
+    result = await db.execute(select(Media.owner_user_id).where(Media.id == detection.media_id))
+    return result.scalar_one_or_none()
 
 
 @router.post("/analyze")
@@ -117,6 +134,9 @@ async def accept_detection(
     detection = await db.get(AIDetection, detection_id)
     if detection is None:
         raise HTTPException(status_code=404, detail="Detection not found")
+    await _ensure_exists(db, Item, body.item_id, "Item")
+    await _ensure_exists(db, Location, body.location_id, "Location")
+    review_user_id = await _resolve_review_user_id(db, detection)
     detection.status = AIDetectionStatusEnum.DONE
     detection.completed_at = datetime.utcnow()
     values: dict = {"decision": AIDetectionDecision.ACCEPTED, "decided_at": datetime.utcnow()}
@@ -132,6 +152,7 @@ async def accept_detection(
     db.add(
         AIDetectionReview(
             detection_id=detection_id,
+            user_id=review_user_id,
             action=AIDetectionReviewAction.ACCEPT,
             payload=body.model_dump(),
         )
@@ -150,6 +171,10 @@ async def reject_detection(
     detection = await db.get(AIDetection, detection_id)
     if detection is None:
         raise HTTPException(status_code=404, detail="Detection not found")
+    if body:
+        await _ensure_exists(db, Item, body.item_id, "Item")
+        await _ensure_exists(db, Location, body.location_id, "Location")
+    review_user_id = await _resolve_review_user_id(db, detection)
     detection.status = AIDetectionStatusEnum.FAILED
     detection.completed_at = datetime.utcnow()
     values: dict = {"decision": AIDetectionDecision.REJECTED, "decided_at": datetime.utcnow()}
@@ -165,6 +190,7 @@ async def reject_detection(
     db.add(
         AIDetectionReview(
             detection_id=detection_id,
+            user_id=review_user_id,
             action=AIDetectionReviewAction.REJECT,
             payload=body.model_dump() if body else {},
         )
@@ -183,9 +209,11 @@ async def add_review_log(
     detection = await db.get(AIDetection, detection_id)
     if detection is None:
         raise HTTPException(status_code=404, detail="Detection not found")
+    review_user_id = await _resolve_review_user_id(db, detection)
     db.add(
         AIDetectionReview(
             detection_id=detection_id,
+            user_id=review_user_id,
             action=body.action,
             payload=body.payload,
         )
@@ -210,6 +238,8 @@ async def update_detection_object(
     obj = await db.get(AIDetectionObject, object_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="Detection object not found")
+    await _ensure_exists(db, Item, body.item_id, "Item")
+    await _ensure_exists(db, Location, body.location_id, "Location")
     if body.item_id is not None:
         obj.linked_item_id = body.item_id
     if body.location_id is not None:

@@ -1,19 +1,27 @@
 import logging
+import math
 from pathlib import Path
 from typing import List
 
 import numpy as np
 from PIL import Image
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.ai import AIDetection, AIDetectionObject, AIDetectionStatus
+from app.models.ai import AIDetection, AIDetectionObject, AIDetectionStatus, AIDetectionCandidate
 from app.models.media import Media
+from app.models.item import Item
 from app.services.ai.detector import detect_objects
 from app.services.ai.embeddings import image_embedding
 
 logger = logging.getLogger(__name__)
+
+
+def _expected_frame_total(total_frames: int, stride: int, limit: int) -> int:
+    if total_frames <= 0:
+        return limit
+    return min(limit, max(1, math.ceil(total_frames / max(1, stride))))
 
 
 async def analyze_video(
@@ -48,6 +56,16 @@ async def analyze_video(
 
     stride = frame_stride or settings.video_frame_stride
     limit = max_frames or settings.video_max_frames
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+    expected_total = _expected_frame_total(total_frames, stride, limit)
+    logger.info(
+        "analyze_video.start media_id=%s stride=%s limit=%s total_frames=%s expected_total=%s",
+        media_id,
+        stride,
+        limit,
+        total_frames,
+        expected_total,
+    )
     detection_ids: List[int] = []
     frame_idx = 0
     processed_frames = 0
@@ -59,7 +77,15 @@ async def analyze_video(
                 tmp_path.mkdir(parents=True, exist_ok=True)
                 frame_file = tmp_path / f"frame_{media_id}_{frame_idx}.jpg"
                 cv2.imwrite(str(frame_file), frame)
-                detection = await _create_detection_from_frame(media_id, frame_file, db, frame_idx)
+                detection = await _create_detection_from_frame(
+                    media_id=media_id,
+                    frame_path=frame_file,
+                    db=db,
+                    frame_index=frame_idx,
+                    frames_total=expected_total,
+                    processed_index=processed_frames + 1,
+                    media_location_id=media.location_id,
+                )
                 detection_ids.append(detection.id)
                 try:
                     frame_file.unlink(missing_ok=True)
@@ -82,6 +108,12 @@ async def analyze_video(
                 tmp_dir.rmdir()
         except Exception:
             pass
+    logger.info(
+        "analyze_video.done media_id=%s processed_frames=%s detections=%s",
+        media_id,
+        processed_frames,
+        len(detection_ids),
+    )
     return detection_ids
 
 
@@ -90,6 +122,9 @@ async def _create_detection_from_frame(
     frame_path: Path,
     db: AsyncSession,
     frame_index: int,
+    frames_total: int,
+    processed_index: int,
+    media_location_id: int | None,
 ) -> AIDetection:
     import cv2  # noqa: WPS433
 
@@ -101,7 +136,12 @@ async def _create_detection_from_frame(
     detection_row = AIDetection(
         media_id=media_id,
         status=AIDetectionStatus.IN_PROGRESS,
-        raw={"objects": [], "frame_index": frame_index},
+        raw={
+            "objects": [],
+            "frame_index": frame_index,
+            "frames_total": frames_total,
+            "progress": {"current": processed_index, "total": frames_total},
+        },
     )
     db.add(detection_row)
     await db.flush()
@@ -130,6 +170,24 @@ async def _create_detection_from_frame(
             }
         )
         db.add(det_obj)
+
+        # Create candidate suggestions based on location (best-effort)
+        if media_location_id:
+            stmt = (
+                select(Item.id)
+                .where(Item.location_id == media_location_id)
+                .order_by(Item.created_at.desc())
+                .limit(3)
+            )
+            item_ids = [row[0] for row in (await db.execute(stmt)).all()]
+            for idx, item_id in enumerate(item_ids):
+                db.add(
+                    AIDetectionCandidate(
+                        detection_object_id=det_obj.id,
+                        item_id=item_id,
+                        score=max(0.1, min(0.9, 0.7 - idx * 0.1)),
+                    )
+                )
     await db.flush()
     detection_row.status = AIDetectionStatus.DONE
     detection_row.completed_at = func.now()

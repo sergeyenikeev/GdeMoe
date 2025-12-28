@@ -191,11 +191,19 @@ def _validate_mime(mime: str | None, media_type: MediaType) -> str:
     mime_lower = (mime or "").lower()
     if mime_lower and mime_lower not in [m.lower() for m in settings.media_allowed_mimes]:
         raise HTTPException(status_code=400, detail=f"Unsupported mime type: {mime_lower}")
-    if media_type == MediaType.PHOTO and mime_lower and not mime_lower.startswith("image/"):
-        raise HTTPException(status_code=400, detail="media_type=photo conflicts with mime_type")
-    if media_type == MediaType.VIDEO and mime_lower and not mime_lower.startswith("video/"):
+    if mime_lower and media_type == MediaType.PHOTO and mime_lower.startswith("video/"):
+        media_type = MediaType.VIDEO  # auto-correct to avoid conflicts from mobile capture
+    if mime_lower and media_type == MediaType.VIDEO and not mime_lower.startswith("video/"):
         raise HTTPException(status_code=400, detail="media_type=video conflicts with mime_type")
     return mime_lower
+
+
+def _validate_video_params(frame_stride: int | None, max_frames: int | None) -> tuple[int | None, int | None]:
+    if frame_stride is not None and frame_stride <= 0:
+        raise HTTPException(status_code=400, detail="video_frame_stride must be positive")
+    if max_frames is not None and max_frames <= 0:
+        raise HTTPException(status_code=400, detail="video_max_frames must be positive")
+    return frame_stride, max_frames
 
 
 @router.post("/upload")
@@ -212,6 +220,8 @@ async def upload_media(
     analyze: bool = Form(True),
     source: str | None = Form("upload"),
     client_created_at: str | None = Form(None),
+    video_frame_stride: int | None = Form(None),
+    video_max_frames: int | None = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
     try:
@@ -287,11 +297,14 @@ async def upload_media(
         if analyze:
             try:
                 if media_type_enum == MediaType.VIDEO:
+                    video_frame_stride, video_max_frames = _validate_video_params(
+                        video_frame_stride, video_max_frames
+                    )
                     detection_ids = await analyze_video(
                         media.id,
                         db,
-                        frame_stride=settings.video_frame_stride,
-                        max_frames=settings.video_max_frames,
+                        frame_stride=video_frame_stride or settings.video_frame_stride,
+                        max_frames=video_max_frames or settings.video_max_frames,
                     )
                     latest = None
                     if detection_ids:
@@ -343,9 +356,23 @@ async def upload_media(
             "analysis": analysis_status,
         }
     except HTTPException as exc:
+        logger.warning(
+            "media.upload.failed status=%s detail=%s filename=%s workspace_id=%s owner_user_id=%s",
+            exc.status_code,
+            exc.detail if hasattr(exc, "detail") else str(exc),
+            getattr(file, "filename", None),
+            workspace_id,
+            owner_user_id,
+        )
         await _mark_upload_failed(db, upload_log, str(exc.detail if hasattr(exc, "detail") else exc))
         raise
     except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "media.upload.failed_unexpected filename=%s workspace_id=%s owner_user_id=%s",
+            getattr(file, "filename", None),
+            workspace_id,
+            owner_user_id,
+        )
         await _mark_upload_failed(db, upload_log, str(exc))
         raise
 
@@ -354,12 +381,18 @@ async def upload_media(
 async def upload_history(
     owner_user_id: int | None = None,
     limit: int = 50,
+    status: UploadStatus | None = None,
+    source: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     logger.info("media.history.list owner=%s limit=%s", owner_user_id, limit)
     stmt = select(MediaUploadHistory).order_by(MediaUploadHistory.created_at.desc()).limit(limit)
     if owner_user_id:
         stmt = stmt.where(MediaUploadHistory.owner_user_id == owner_user_id)
+    if status:
+        stmt = stmt.where(MediaUploadHistory.status == status)
+    if source:
+        stmt = stmt.where(MediaUploadHistory.source == source)
     rows = (await db.execute(stmt)).scalars().all()
     result: list[MediaUploadHistoryOut] = []
     for entry in rows:
