@@ -220,7 +220,7 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                 true
             } catch (e: Exception) {
                 message = "Ошибка загрузки: ${e.localizedMessage}"
-                AnalyticsLogger.event("quick_add_media_error", mapOf("error" to e.localizedMessage))
+                AnalyticsLogger.event("quick_add_media_error", mapOf("error" to e.localizedMessage, "type" to mediaType, "source" to source))
                 false
             }
         }
@@ -238,7 +238,11 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
         }
     val pickMediaLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-            uri?.let { uploadMedia(it, "photo", "quick_gallery") }
+            uri?.let {
+                val mime = context.contentResolver.getType(it) ?: ""
+                val mediaType = if (mime.startsWith("video/")) "video" else "photo"
+                uploadMedia(it, mediaType, "quick_gallery")
+            }
         }
 
     fun save() {
@@ -413,6 +417,7 @@ private suspend fun uploadQuickMedia(
     return withContext(Dispatchers.IO) {
         val cr = context.contentResolver
         val mime = cr.getType(uri) ?: if (mediaType == "video") "video/mp4" else "image/jpeg"
+        AnalyticsLogger.debug("quick_add_media_mime", mapOf("mime" to mime, "mediaType" to mediaType, "source" to source))
         val ext = when {
             mime.contains("jpeg") || mime.contains("jpg") -> ".jpg"
             mime.contains("png") -> ".png"

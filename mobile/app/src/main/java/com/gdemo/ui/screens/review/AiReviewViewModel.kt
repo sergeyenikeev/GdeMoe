@@ -53,13 +53,27 @@ class AiReviewViewModel(
     }
 
     fun accept(id: Int) = viewModelScope.launch {
-        runCatching { repo.accept(id) }
+        _ui.value = _ui.value.copy(error = null)
+        runCatching {
+            repo.accept(id)
+            repo.log(id, action = "accept")
+            AnalyticsLogger.event("ai_accept", mapOf("detectionId" to id))
+        }.onFailure { err ->
+            _ui.value = _ui.value.copy(error = err.localizedMessage)
+        }
         refresh()
         refreshHistory()
     }
 
     fun reject(id: Int) = viewModelScope.launch {
-        runCatching { repo.reject(id) }
+        _ui.value = _ui.value.copy(error = null)
+        runCatching {
+            repo.reject(id)
+            repo.log(id, action = "reject")
+            AnalyticsLogger.event("ai_reject", mapOf("detectionId" to id))
+        }.onFailure { err ->
+            _ui.value = _ui.value.copy(error = err.localizedMessage)
+        }
         refresh()
         refreshHistory()
     }

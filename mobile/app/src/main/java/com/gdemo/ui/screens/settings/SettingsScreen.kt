@@ -13,6 +13,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +31,7 @@ import com.gdemo.data.local.ConnectionSettings
 import com.gdemo.data.local.loadConnection
 import com.gdemo.data.local.saveConnection
 import com.gdemo.data.remote.ApiClient
+import com.gdemo.data.remote.ApiService
 import kotlinx.coroutines.launch
 
 @Composable
@@ -41,6 +43,7 @@ fun SettingsScreen(paddingValues: PaddingValues) {
     var password by rememberSaveable { mutableStateOf(stored.password) }
     var scopeSelection by rememberSaveable { mutableStateOf(stored.scope) }
     var statusText by remember { mutableStateOf("Статус: —") }
+    var statusDetails by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
@@ -51,10 +54,15 @@ fun SettingsScreen(paddingValues: PaddingValues) {
         coroutineScope.launch {
             try {
                 isLoading = true
-                ApiClient.create(sanitizedUrl).health()
-                statusText = "Подключение успешно"
+                val api: ApiService = ApiClient.create(sanitizedUrl)
+                val full = api.healthFull()
+                val status = full["status"] ?: "unknown"
+                val checks = full["checks"] ?: emptyMap<String, Any>()
+                statusText = "Health: $status"
+                statusDetails = checks.toString()
             } catch (e: Exception) {
                 statusText = "Ошибка: ${e.localizedMessage}"
+                statusDetails = ""
             } finally {
                 isLoading = false
             }
@@ -95,6 +103,10 @@ fun SettingsScreen(paddingValues: PaddingValues) {
             Text(if (isLoading) "Проверяем..." else "Сохранить и проверить")
         }
         Text(text = statusText)
+        if (statusDetails.isNotBlank()) {
+            HorizontalDivider()
+            Text(text = statusDetails)
+        }
         Spacer(modifier = Modifier.height(12.dp))
         Text(text = "Версия: ${BuildConfig.VERSION_NAME}")
     }

@@ -35,6 +35,9 @@ interface ApiService {
     @GET("/api/v1/health")
     suspend fun health(): Map<String, String>
 
+    @GET("/api/v1/health/full")
+    suspend fun healthFull(): Map<String, Any>
+
     @GET("/api/v1/items")
     suspend fun items(): List<Item>
 
