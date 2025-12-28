@@ -5,14 +5,23 @@ services:
       dockerfile: docker/Dockerfile
     env_file:
       - ../.env
+    environment:
+      HOME: /root
+      ULTRALYTICS_CACHE_DIR: /root/.cache/ultralytics
+      AI_YOLO_WEIGHTS_PATH: /root/.cache/ultralytics/assets/yolov8n.pt
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     depends_on:
       - db
     ports:
       - "8000:8000"
     volumes:
-      - public_media:/data/gdemo/public_media:rw
-      - private_media:/data/gdemo/private_media:rw
+      - public_media_v2:/data/gdemo/public_media:rw
+      - private_media_v2:/data/gdemo/private_media:rw
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   db:
@@ -25,17 +34,22 @@ services:
       - pg_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gdemoe}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
 volumes:
   pg_data:
-  public_media:
+  public_media_v2:
     driver_opts:
       type: cifs
-      o: username=esp,password=Sergey2704,rw,uid=0,gid=0,file_mode=0777,dir_mode=0777,noperm
-      device: //nas/public/data/gdemo/media
-  private_media:
+      o: username=${NAS_USER},password=${NAS_PASSWORD},rw,uid=0,gid=0,file_mode=0777,dir_mode=0777,noperm
+      device: //${NAS_HOST}/public/data/gdemo/media
+  private_media_v2:
     driver_opts:
       type: cifs
-      o: username=esp,password=Sergey2704,rw,uid=0,gid=0,file_mode=0777,dir_mode=0777,noperm
-      device: //nas/esp/data/gdemo/media
+      o: username=${NAS_USER},password=${NAS_PASSWORD},rw,uid=0,gid=0,file_mode=0777,dir_mode=0777,noperm
+      device: //${NAS_HOST}/esp/data/gdemo/media

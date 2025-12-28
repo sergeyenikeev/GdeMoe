@@ -1,13 +1,13 @@
-﻿# Сборка и запуск "ГдеМоё"
+# Сборка и запуск "ГдеМоё"
 
 ## Структура
-- ackend/ — FastAPI + PostgreSQL + Alembic.
-- ackend/docker/ — Dockerfile и docker-compose.
+- backend/ — FastAPI + PostgreSQL + Alembic.
+- backend/docker/ — Dockerfile и docker-compose.
 - mobile/ — Android (Kotlin, Jetpack Compose, MVVM).
 - docs/ — документация.
 
 ## Backend локально (Python)
-`ash
+```bash
 cd backend
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
@@ -18,46 +18,46 @@ set POSTGRES_USER=gdemoe
 set POSTGRES_PASSWORD=gdemoe
 alembic upgrade head
 uvicorn app.main:app --reload --port 8000
-`
-Проверка: curl http://localhost:8000/api/v1/health.
+```
+Проверка: `curl http://localhost:8000/api/v1/health`.
 
 ## Backend в Docker
-`ash
+```bash
 cd backend/docker
-copy ..\.env.example ..\.env  # проверьте пути к медиа
+copy ..\.env.example ..\.env  # при необходимости правим пути и секреты
 docker compose up -d --build
 docker compose exec api alembic upgrade head
-`
+```
 
-## Компиляция Python (опционально)
-`ash
+## Упаковка Python (опционально)
+```bash
 cd backend
 pip install nuitka
 nuitka --onefile --follow-imports app/main.py -o gdemoe-api
-`
+```
 
 ## Android
 Требуется JDK 17, Android SDK, Gradle wrapper.
-`ash
+```bash
 cd mobile
 ./gradlew assembleDebug   # или assembleRelease
-`
-APK: mobile/app/build/outputs/apk/debug/app-debug.apk (или release/app-release.apk).
-Установка: db install -r app/build/outputs/apk/debug/app-debug.apk.
+```
+APK: `mobile/app/build/outputs/apk/debug/app-debug.apk` (release: `app-release.apk`).
+Установка: `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
 
-## Что проверить после обновления
-1. pip install -r backend/requirements.txt (добавлен pillow-heif, opencv).
-2. lembic upgrade head (новый статус in_progress для AI).
-3. В приложении дать разрешения на камеру/микрофон, сделать фото/видео и убедиться, что AI-статус done и есть хотя бы один объект (фолбэк работает даже без YOLO).
+## Порядок проверки новых фич загрузки
+1. `pip install -r backend/requirements.txt` (есть pillow-heif, opencv).
+2. `alembic upgrade head` (таблица upload_history и статусы AI).
+3. На устройстве/эмуляторе загрузить фото/видео, убедиться, что статус AI доходит до `done`, превью доступно, а запись видна в `GET /api/v1/media/history`.
 
-## Рекомендации для съемки (MVP)
-- Снимайте крупно один предмет, без лишнего фона, хорошее освещение.
-- Не перекрывайте объект и держите в кадре целиком.
-- Для видео — 2–3 секунды, медленно покачайте камерой вокруг предмета.
-- Форматы: JPG/PNG/HEIC/MP4 поддерживаются; HEIC требует актуальных зависимостей (pillow-heif).
-- Если веса YOLO не скачаны, сработает фолбэк-контур: будет одна рамка на крупный объект.
+## Минимальные критерии для релиза (MVP)
+- Backend отвечает и пишет в БД/хранилище, CI юнит-тесты зелёные.
+- Мобильный клиент умеет добавить/просмотреть предметы, загрузить медиа и увидеть статус AI.
+- Видео: до 2–3 минут, UI показывает прогресс/ошибку.
+- Форматы: JPG/PNG/HEIC/MP4 поддержаны; HEIC читается через pillow-heif.
+- Если YOLO не скачан, включается фолбэк-детекция, пользователю показываем статус failed/упрощённый результат.
 
-Android тесты:
-- В каталоге mobile: `./gradlew testDebugUnitTest`
-- UI/инструментальные (при наличии девайса): `./gradlew :app:connectedAndroidTest`
-- Сборка APK: `./gradlew assembleDebug` (результат: mobile/app/build/outputs/apk/debug/app-debug.apk)
+Android проверки:
+- Юнит: `./gradlew testDebugUnitTest`
+- Инструментальные (при наличии девайса): `./gradlew :app:connectedAndroidTest`
+- Сборка APK: `./gradlew assembleDebug`

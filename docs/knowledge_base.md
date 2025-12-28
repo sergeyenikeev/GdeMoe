@@ -1,4 +1,4 @@
-# База знаний (Codex)
+﻿# База знаний (Codex)
 
 - Никогда не трогаем `notouch.txt`.
 - Тесты: backend `cd backend && python -m pytest`; mobile `cd mobile && ./gradlew testDebugUnitTest`; сборка APK `./gradlew assembleDebug`.
@@ -8,4 +8,20 @@
 - Журнал загрузок: `GET /api/v1/media/history` возвращает статус загрузки, превью, AI-резюме; модель `MediaUploadHistory`.
 - Коммуникация с API: всегда дергать `ApiClient.sanitizeBaseUrl` перед созданием Retrofit клиента.
 - Сохранение в git: перед коммитом — прогнать тесты, не добавлять чувствительные данные, не коммитить `notouch.txt`.
-- Docker backend: перезапускать командой `cd backend/docker && docker compose build api && docker compose up -d api` (если есть орфаны — добавить `--remove-orphans`). После миграций обязательно `alembic upgrade head`.
+- Docker backend: перезапускать командой `cd backend/docker && docker compose build api && docker compose up -d api` (если есть орфаны — добавить `--remove-orphans`). После миграций обязательно `alembic upgrade head`. Для проверки окружения доступен `/api/v1/health/full` (БД, пути медиа, YOLO weights).
+- Новые артефакты: план QA — `docs/qa_plan.md`, системный план — `docs/system_plan.md`, рекомендации по UI/UX — `docs/ui_ux_recommendations.md`, DevOps-автоматизация — `docs/devops_automation.md`. Обновлённые инструкции по сборке — `docs/build_and_run.md`, деплой на NAS — `docs/backend_deploy_on_nas.md`.
+- NAS/CIFS: `backend/docker/docker-compose.yml` теперь берет креды из `.env` (`NAS_USER`, `NAS_PASSWORD`). Заполнить их перед запуском на NAS/CI; реальные значения не коммитить.
+- Релиз: перед выкатыванием использовать чек-лист `docs/release_checklist.md` (тесты, миграции, health, NAS/AI проверки, релиз-ноты).
+- Тестовые фикстуры для upload интеграций: `backend/app/tests/assets/` (sample.jpg/heic/mp4). Проверка health full покрыта в `backend/app/tests/test_health_full.py`.
+- Mobile Settings использует `/api/v1/health/full` для быстрой проверки подключения (показывает checks).
+- Data Science: основная стратегия и план работ по детекции/матчингу в `docs/data_science_plan.md` (YOLO/RT-DETR, CLIP, ANN, метрики, чек-лист задач) — использовать как точку входа для DS-активностей.
+- Datasets: инструкции по скачиванию и раскладке датасетов (COCO, Open Images annotations через Kaggle, RPC/SKU110K/GroZi) в `docs/datasets_download.md`.
+- Data prep: конвертация RPC/SKU110K/GroZi в manifest CSV через `scripts/convert_rpc_manifest.py`, `scripts/convert_sku110k_manifest.py`, `scripts/convert_yolo_manifest.py`, затем объединение `scripts/merge_manifests.py`.
+- Data prep (YOLO): сборка единого датасета с hardlink/copy + `dataset.yaml` через `scripts/build_yolo_dataset.py`.
+- Training: запуск обучения через `scripts/train_yolo.py`, итоговые веса подключать через `AI_YOLO_WEIGHTS_PATH` в backend `.env`.
+- OPS: рекомендации по развертыванию/мониторингу в `docs/ops_recommendations.md` (healthchecks, NAS, бэкапы, алерты).
+- QA ????? ? ????????????: `docs/qa_report.md`.
+- ???????? ??????? (UI/UX): `docs/project_description.md`.
+- ?????? ?? NAS: ?????? `scripts/deploy_nas.sh` (docker compose + ???????? + health).
+- ?????-?????? ????? ?????? ????? `VIDEO_FRAME_STRIDE`/`VIDEO_MAX_FRAMES` ??? form-????????? upload.
+- `/api/v1/media/history` ???????????? ??????? `status`/`source` ??? QA/?????????.
