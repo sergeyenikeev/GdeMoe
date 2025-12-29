@@ -79,6 +79,7 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
     var saveAndNext by remember { mutableStateOf(false) }
     var showPicker by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
+    var hintItemIds by remember { mutableStateOf("") }
     var isUploading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val uploadQueue = remember { UploadQueue(scope) }
@@ -175,7 +176,16 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
             mediaType = mediaType
         ) {
             try {
-                val uploaded = uploadQuickMedia(context, api, uri, stored.scope.ifBlank { "private" }, mediaType, source)
+                val hintText = hintItemIds.trim().ifBlank { null }
+                val uploaded = uploadQuickMedia(
+                    context,
+                    api,
+                    uri,
+                    stored.scope.ifBlank { "private" },
+                    mediaType,
+                    source,
+                    hintText
+                )
                 var details = runCatching { api.mediaDetails(uploaded.id) }.getOrNull()
                 if (details?.analysis == null && details?.detection == null) {
                     repeat(10) {
@@ -300,7 +310,13 @@ fun QuickAddScreen(paddingValues: PaddingValues, onItemCreated: (Int) -> Unit = 
                 ) {
                     Text(selectedLocation?.path ?: "Выбрать локацию")
                 }
-                                Text("Мгновенное медиа")
+                OutlinedTextField(
+                    value = hintItemIds,
+                    onValueChange = { hintItemIds = it },
+                    label = { Text("Hint item IDs (comma-separated)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text("Мгновенное медиа")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = {
                         val photoFile = File.createTempFile("qa_capture_photo_", ".jpg", context.cacheDir)
@@ -412,7 +428,8 @@ private suspend fun uploadQuickMedia(
     uri: Uri,
     scope: String,
     mediaType: String,
-    source: String
+    source: String,
+    hintItemIds: String?
 ) : MediaUploadResponse {
     return withContext(Dispatchers.IO) {
         val cr = context.contentResolver
@@ -446,7 +463,8 @@ private suspend fun uploadQuickMedia(
             analyze = textBody("true"),
             source = textBody(source),
             clientCreatedAt = textBody(System.currentTimeMillis().toString()),
-            mimeType = textBody(mime)
+            mimeType = textBody(mime),
+            hintItemIds = hintItemIds?.let { textBody(it) }
         )
     }
 }

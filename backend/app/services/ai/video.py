@@ -29,6 +29,7 @@ async def analyze_video(
     db: AsyncSession,
     frame_stride: int | None = None,
     max_frames: int | None = None,
+    hint_item_ids: list[int] | None = None,
 ) -> List[int]:
     """
     Analyze video by sampling frames; creates detections linked to the original media_id.
@@ -58,13 +59,21 @@ async def analyze_video(
     limit = max_frames or settings.video_max_frames
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
     expected_total = _expected_frame_total(total_frames, stride, limit)
+    valid_hint_items: list[int] = []
+    if hint_item_ids:
+        stmt = select(Item.id).where(
+            Item.workspace_id == media.workspace_id,
+            Item.id.in_(hint_item_ids),
+        )
+        valid_hint_items = [row[0] for row in (await db.execute(stmt)).all()]
     logger.info(
-        "analyze_video.start media_id=%s stride=%s limit=%s total_frames=%s expected_total=%s",
+        "analyze_video.start media_id=%s stride=%s limit=%s total_frames=%s expected_total=%s hint_items=%s",
         media_id,
         stride,
         limit,
         total_frames,
         expected_total,
+        valid_hint_items,
     )
     detection_ids: List[int] = []
     frame_idx = 0
@@ -85,6 +94,7 @@ async def analyze_video(
                     frames_total=expected_total,
                     processed_index=processed_frames + 1,
                     media_location_id=media.location_id,
+                    hint_item_ids=valid_hint_items,
                 )
                 detection_ids.append(detection.id)
                 try:
@@ -125,6 +135,7 @@ async def _create_detection_from_frame(
     frames_total: int,
     processed_index: int,
     media_location_id: int | None,
+    hint_item_ids: list[int] | None,
 ) -> AIDetection:
     import cv2  # noqa: WPS433
 
@@ -141,6 +152,7 @@ async def _create_detection_from_frame(
             "frame_index": frame_index,
             "frames_total": frames_total,
             "progress": {"current": processed_index, "total": frames_total},
+            "hint_item_ids": hint_item_ids or [],
         },
     )
     db.add(detection_row)
@@ -186,6 +198,15 @@ async def _create_detection_from_frame(
                         detection_object_id=det_obj.id,
                         item_id=item_id,
                         score=max(0.1, min(0.9, 0.7 - idx * 0.1)),
+                    )
+                )
+        if hint_item_ids:
+            for item_id in hint_item_ids:
+                db.add(
+                    AIDetectionCandidate(
+                        detection_object_id=det_obj.id,
+                        item_id=item_id,
+                        score=0.95,
                     )
                 )
     await db.flush()

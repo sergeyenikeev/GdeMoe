@@ -1,6 +1,7 @@
 # История изменений
 
 ## 2025-12-28
+- Backend: locations parent update/clear, location photo binding, upload history `location_id`, upload/AI `hint_item_ids`; Mobile: location editor + hint item IDs input.
 - Backend: AI review logs пишутся с user_id из owner_user_id; добавлена валидация item/location; параметры видео `video_frame_stride`/`video_max_frames`; фильтры status/source для `/media/history`; нормализован progress видео-анализа.
 - DevOps: docker-compose healthchecks, корректный `AI_YOLO_WEIGHTS_PATH`, обновлён `.env.example`, добавлен скрипт `scripts/deploy_nas.sh`.
 - Документация: новый `docs/qa_report.md` и `docs/project_description.md`, обновлены `docs/system_plan.md`, `docs/devops_automation.md`, `docs/defects.md`, `docs/qa_plan.md`.

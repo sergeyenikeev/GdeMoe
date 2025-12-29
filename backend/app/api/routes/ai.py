@@ -60,17 +60,21 @@ async def request_analysis(payload: AITaskRequest, db: AsyncSession = Depends(ge
             try:
                 await client.post(
                     f"{settings.ai_service_url}/tasks",
-                    json={"media_id": payload.media_id, "callback_id": detection.id},
+                    json={
+                        "media_id": payload.media_id,
+                        "callback_id": detection.id,
+                        "hint_item_ids": payload.hint_item_ids,
+                    },
                 )
             except Exception as exc:  # noqa: BLE001
                 raise HTTPException(status_code=502, detail=f"AI service unavailable: {exc}") from exc
         loaded = await _load_detection(db, detection.id)
         return loaded
 
-    logger.info("ai.analyze.start media_id=%s", payload.media_id)
+    logger.info("ai.analyze.start media_id=%s hint_items=%s", payload.media_id, payload.hint_item_ids)
     # Local pipeline (YOLO + CLIP)
     try:
-        detection = await analyze_media(payload.media_id, db)
+        detection = await analyze_media(payload.media_id, db, hint_item_ids=payload.hint_item_ids)
     except ImportError as exc:
         logger.exception("ai.analyze.failed media_id=%s", payload.media_id)
         raise HTTPException(
@@ -86,7 +90,7 @@ async def request_analysis(payload: AITaskRequest, db: AsyncSession = Depends(ge
 @router.post("/analyze_video")
 async def request_video_analysis(payload: AITaskRequest, db: AsyncSession = Depends(get_db)):
     # Samples frames and runs image pipeline
-    detection_ids = await analyze_video(payload.media_id, db)
+    detection_ids = await analyze_video(payload.media_id, db, hint_item_ids=payload.hint_item_ids)
     if detection_ids:
         latest = await db.get(AIDetection, detection_ids[-1])
         if latest:

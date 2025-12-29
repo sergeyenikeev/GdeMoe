@@ -9,6 +9,7 @@ class LocationBase(BaseModel):
     name: str
     kind: LocationKind = LocationKind.OTHER
     parent_id: int | None = None
+    photo_media_id: int | None = None
     meta: dict | None = None
 
 
@@ -20,6 +21,7 @@ class LocationUpdate(BaseModel):
     name: str | None = None
     kind: LocationKind | None = None
     parent_id: int | None = None
+    photo_media_id: int | None = None
     meta: dict | None = None
 
 

@@ -5,6 +5,7 @@ data class UploadHistoryEntryDto(
     val media_id: Int?,
     val workspace_id: Int,
     val owner_user_id: Int,
+    val location_id: Int? = null,
     val media_type: String,
     val status: String,
     val source: String?,

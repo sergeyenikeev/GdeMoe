@@ -10,6 +10,7 @@ class MediaUploadHistoryOut(BaseModel):
     media_id: int | None = None
     workspace_id: int
     owner_user_id: int
+    location_id: int | None = None
     media_type: MediaType
     status: UploadStatus
     source: str | None = None

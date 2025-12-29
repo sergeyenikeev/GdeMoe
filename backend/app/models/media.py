@@ -44,6 +44,7 @@ class MediaUploadHistory(Base):
     detection_id: Mapped[int | None] = mapped_column(ForeignKey("aidetection.id"), nullable=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspace.id"), nullable=False)
     owner_user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False)
+    location_id: Mapped[int | None] = mapped_column(ForeignKey("location.id"), nullable=True)
     media_type: Mapped[MediaType] = mapped_column(
         Enum(MediaType, values_callable=lambda x: [e.value for e in x])
     )

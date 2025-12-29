@@ -47,14 +47,29 @@ interface ApiService {
     @GET("/api/v1/locations/{id}/items")
     suspend fun itemsByLocation(@Path("id") id: Int): List<Item>
 
+    @GET("/api/v1/locations/{id}/media")
+    suspend fun locationMedia(@Path("id") id: Int): List<MediaDto>
+
     @POST("/api/v1/locations")
     suspend fun createLocation(@Body body: LocationCreateRequest): LocationDto
 
     @PATCH("/api/v1/locations/{id}")
     suspend fun updateLocation(@Path("id") id: Int, @Body body: LocationUpdateRequest): LocationDto
 
+    @DELETE("/api/v1/locations/{id}/parent")
+    suspend fun clearLocationParent(@Path("id") id: Int): Response<Unit>
+
     @DELETE("/api/v1/locations/{id}")
     suspend fun deleteLocation(@Path("id") id: Int): Response<Unit>
+
+    @POST("/api/v1/locations/{id}/media/{mediaId}")
+    suspend fun linkLocationMedia(@Path("id") id: Int, @Path("mediaId") mediaId: Int): Map<String, Any>
+
+    @POST("/api/v1/locations/{id}/photo/{mediaId}")
+    suspend fun setLocationPhoto(@Path("id") id: Int, @Path("mediaId") mediaId: Int): Map<String, Any>
+
+    @DELETE("/api/v1/locations/{id}/photo")
+    suspend fun clearLocationPhoto(@Path("id") id: Int): Response<Unit>
 
     @POST("/api/v1/imports/product-link")
     @Headers("Content-Type: application/json")
@@ -113,14 +128,18 @@ interface ApiService {
         @Part("analyze") analyze: okhttp3.RequestBody? = null,
         @Part("source") source: okhttp3.RequestBody? = null,
         @Part("client_created_at") clientCreatedAt: okhttp3.RequestBody? = null,
-        @Part("mime_type") mimeType: okhttp3.RequestBody? = null
+        @Part("mime_type") mimeType: okhttp3.RequestBody? = null,
+        @Part("hint_item_ids") hintItemIds: okhttp3.RequestBody? = null
     ): MediaUploadResponse
 
     @GET("/api/v1/media/recent")
     suspend fun recentMedia(@Query("scope") scope: String = "public"): List<MediaDto>
 
     @GET("/api/v1/media/history")
-    suspend fun uploadHistory(@Query("limit") limit: Int = 50): List<UploadHistoryEntryDto>
+    suspend fun uploadHistory(
+        @Query("limit") limit: Int = 50,
+        @Query("location_id") locationId: Int? = null
+    ): List<UploadHistoryEntryDto>
 
     @GET("/api/v1/media/{id}")
     suspend fun mediaDetails(@Path("id") id: Int): MediaDto

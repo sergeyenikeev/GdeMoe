@@ -60,3 +60,17 @@ def test_validate_video_params_allows_positive(stride, max_frames):
 def test_validate_video_params_rejects_non_positive(stride, max_frames):
     with pytest.raises(Exception):
         media._validate_video_params(stride, max_frames)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("1,2,3", [1, 2, 3]),
+        (" 4;5 ", [4, 5]),
+        ("", []),
+        (None, []),
+        ("abc,7", [7]),
+    ],
+)
+def test_parse_hint_item_ids(value, expected):
+    assert media._parse_hint_item_ids(value) == expected

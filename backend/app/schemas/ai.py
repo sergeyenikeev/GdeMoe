@@ -8,6 +8,7 @@ from app.models.enums import AIDetectionStatus, AIDetectionDecision, AIDetection
 
 class AITaskRequest(BaseModel):
     media_id: int
+    hint_item_ids: list[int] | None = None
 
 
 class AIDetectionObjectOut(BaseModel):

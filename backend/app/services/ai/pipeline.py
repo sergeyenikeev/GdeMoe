@@ -34,6 +34,7 @@ except Exception:
 logger = logging.getLogger(__name__)
 CANDIDATE_TOP_K = 3
 CANDIDATE_MAX_ITEMS = 200
+HINT_CANDIDATE_SCORE = 0.95
 
 
 def _resolve_media_path(media_path: str) -> Path:
@@ -102,7 +103,21 @@ def _top_k_candidates(
     return scores[:top_k]
 
 
-async def analyze_media(media_id: int, db: AsyncSession) -> AIDetection:
+async def _resolve_hint_item_ids(
+    db: AsyncSession,
+    workspace_id: int,
+    hint_item_ids: list[int] | None,
+) -> list[int]:
+    if not hint_item_ids:
+        return []
+    stmt = select(Item.id).where(
+        Item.workspace_id == workspace_id,
+        Item.id.in_(hint_item_ids),
+    )
+    return [row[0] for row in (await db.execute(stmt)).all()]
+
+
+async def analyze_media(media_id: int, db: AsyncSession, hint_item_ids: list[int] | None = None) -> AIDetection:
     media = await db.get(Media, media_id)
     if not media:
         raise ValueError("Media not found")
@@ -112,7 +127,12 @@ async def analyze_media(media_id: int, db: AsyncSession) -> AIDetection:
     if not media_path.exists():
         raise FileNotFoundError(f"Media file not found: {media_path}")
 
-    detection_row = AIDetection(media_id=media_id, status=AIDetectionStatus.IN_PROGRESS, raw={"objects": []})
+    valid_hint_items = await _resolve_hint_item_ids(db, media.workspace_id, hint_item_ids)
+    detection_row = AIDetection(
+        media_id=media_id,
+        status=AIDetectionStatus.IN_PROGRESS,
+        raw={"objects": [], "hint_item_ids": valid_hint_items},
+    )
     db.add(detection_row)
     await db.flush()
 
@@ -172,6 +192,8 @@ async def analyze_media(media_id: int, db: AsyncSession) -> AIDetection:
             await db.flush()
 
             candidate_scores: dict[int, float] = dict(hash_candidates)
+            for item_id in valid_hint_items:
+                candidate_scores[item_id] = max(candidate_scores.get(item_id, 0.0), HINT_CANDIDATE_SCORE)
             if embedding_list is not None:
                 if item_embeddings is None:
                     try:

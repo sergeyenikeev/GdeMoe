@@ -23,7 +23,7 @@ def _sample_bytes() -> bytes:
     return (assets_dir / "sample.jpg").read_bytes()
 
 
-async def _fake_analyze_media(media_id: int, db):
+async def _fake_analyze_media(media_id: int, db, hint_item_ids=None):
     detection = AIDetection(
         media_id=media_id,
         status=AIDetectionStatus.DONE,
@@ -43,6 +43,11 @@ async def _fake_analyze_media(media_id: int, db):
     await db.commit()
     await db.refresh(detection)
     return detection
+
+
+async def _fake_analyze_media_with_hints(media_id: int, db, hint_item_ids=None):
+    assert hint_item_ids == [1, 2]
+    return await _fake_analyze_media(media_id, db)
 
 
 @pytest.mark.anyio
@@ -75,6 +80,45 @@ async def test_upload_and_history_smoke(test_app):
 
 
 @pytest.mark.anyio
+async def test_upload_history_filters_by_location(test_app):
+    app, session_factory, _, _ = test_app
+    async with session_factory() as session:
+        await _seed_workspace(session)
+
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        loc = await client.post(
+            "/api/v1/locations",
+            json={"name": "Box", "workspace_id": 1},
+        )
+        assert loc.status_code == 201
+        loc_id = loc.json()["id"]
+
+        resp = await client.post(
+            "/api/v1/media/upload",
+            files={"file": ("sample.jpg", _sample_bytes(), "image/jpeg")},
+            data={
+                "workspace_id": "1",
+                "owner_user_id": "1",
+                "media_type": "photo",
+                "scope": "public",
+                "subdir": "smoke",
+                "location_id": str(loc_id),
+                "analyze": "false",
+            },
+        )
+        assert resp.status_code == 200
+
+        history = await client.get(
+            "/api/v1/media/history",
+            params={"limit": 5, "location_id": loc_id},
+        )
+        assert history.status_code == 200
+        rows = history.json()
+        assert rows
+        assert all(row["location_id"] == loc_id for row in rows)
+
+
+@pytest.mark.anyio
 async def test_upload_with_ai_stub_updates_history(test_app, monkeypatch):
     app, session_factory, _, _ = test_app
     async with session_factory() as session:
@@ -104,6 +148,30 @@ async def test_upload_with_ai_stub_updates_history(test_app, monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_upload_passes_hint_item_ids(test_app, monkeypatch):
+    app, session_factory, _, _ = test_app
+    async with session_factory() as session:
+        await _seed_workspace(session)
+
+    monkeypatch.setattr(media_routes, "analyze_media", _fake_analyze_media_with_hints)
+
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/media/upload",
+            files={"file": ("sample.jpg", _sample_bytes(), "image/jpeg")},
+            data={
+                "workspace_id": "1",
+                "owner_user_id": "1",
+                "media_type": "photo",
+                "scope": "public",
+                "subdir": "smoke",
+                "hint_item_ids": "1,2",
+            },
+        )
+        assert resp.status_code == 200
+
+
+@pytest.mark.anyio
 async def test_e2e_smoke_upload_analyze_review_log(test_app, monkeypatch):
     app, session_factory, _, _ = test_app
     async with session_factory() as session:
@@ -113,6 +181,13 @@ async def test_e2e_smoke_upload_analyze_review_log(test_app, monkeypatch):
     monkeypatch.setattr(ai_routes, "analyze_media", _fake_analyze_media)
 
     async with AsyncClient(app=app, base_url="http://test") as client:
+        loc = await client.post(
+            "/api/v1/locations",
+            json={"name": "Shelf", "workspace_id": 1},
+        )
+        assert loc.status_code == 201
+        loc_id = loc.json()["id"]
+
         upload = await client.post(
             "/api/v1/media/upload",
             files={"file": ("sample.jpg", _sample_bytes(), "image/jpeg")},
@@ -127,6 +202,9 @@ async def test_e2e_smoke_upload_analyze_review_log(test_app, monkeypatch):
         )
         assert upload.status_code == 200
         media_id = upload.json()["id"]
+
+        set_photo = await client.post(f"/api/v1/locations/{loc_id}/photo/{media_id}")
+        assert set_photo.status_code == 201
 
         analyze = await client.post("/api/v1/ai/analyze", json={"media_id": media_id})
         assert analyze.status_code == 200

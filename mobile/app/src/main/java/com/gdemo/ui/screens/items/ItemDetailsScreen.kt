@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -146,6 +147,7 @@ fun ItemDetailsScreen(
     var showLocationDialog by remember { mutableStateOf(false) }
     var newLocationName by remember { mutableStateOf("") }
     var newLocationParent by remember { mutableStateOf("") }
+    var newLocationParentExpanded by remember { mutableStateOf(false) }
     var tagsList by remember { mutableStateOf<List<String>>(emptyList()) }
     var newTag by remember { mutableStateOf("") }
     var attributesMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -162,6 +164,7 @@ fun ItemDetailsScreen(
     var quantity by remember { mutableStateOf("") }
     var manufacturer by remember { mutableStateOf("") }
     var originCountry by remember { mutableStateOf("") }
+    var hintItemIds by remember { mutableStateOf("") }
     var isUploading by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val uploadQueue = remember { UploadQueue(coroutineScope) }
@@ -275,6 +278,7 @@ fun ItemDetailsScreen(
 
     fun attachMedia(uri: Uri, mediaType: String, source: String = "gallery") {
         uploadQueue.enqueue("item_${idInt}_$mediaType", previewUri = uri.toString(), mediaType = mediaType) {
+            val hintText = hintItemIds.trim().ifBlank { null }
             val uploaded = uploadUri(
                 context = context,
                 uri = uri,
@@ -282,7 +286,8 @@ fun ItemDetailsScreen(
                 scope = scopeSelection,
                 mediaType = mediaType,
                 itemId = idInt,
-                source = source
+                source = source,
+                hintItemIds = hintText
             )
             if (uploaded != null) {
                 loadMedia()
@@ -619,6 +624,12 @@ fun ItemDetailsScreen(
             item {
                 Text(text = "Медиафайлы")
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = hintItemIds,
+                        onValueChange = { hintItemIds = it },
+                        label = { Text("Hint item IDs (comma-separated)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(onClick = { pickImageLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) {
                             Text("Прикрепить фото")
@@ -813,12 +824,42 @@ fun ItemDetailsScreen(
                             label = { Text("Название") },
                             modifier = Modifier.fillMaxWidth()
                         )
-                        OutlinedTextField(
-                            value = newLocationParent,
-                            onValueChange = { newLocationParent = it },
-                            label = { Text("Parent ID (опционально)") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        val parentLabel = newLocationParent.toIntOrNull()?.let { parentId ->
+                            locations.firstOrNull { it.id == parentId }?.name ?: parentId.toString()
+                        } ?: "None"
+                        Box {
+                            OutlinedTextField(
+                                value = parentLabel,
+                                onValueChange = {},
+                                label = { Text("Parent") },
+                                modifier = Modifier.fillMaxWidth(),
+                                readOnly = true
+                            )
+                            DropdownMenu(
+                                expanded = newLocationParentExpanded,
+                                onDismissRequest = { newLocationParentExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("None") },
+                                    onClick = {
+                                        newLocationParent = ""
+                                        newLocationParentExpanded = false
+                                    }
+                                )
+                                locations.forEach { loc ->
+                                    DropdownMenuItem(
+                                        text = { Text(loc.name) },
+                                        onClick = {
+                                            newLocationParent = loc.id.toString()
+                                            newLocationParentExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        Button(onClick = { newLocationParentExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Select parent")
+                        }
                         Button(onClick = { createLocation() }, modifier = Modifier.fillMaxWidth()) {
                             Text("Создать место")
                         }
@@ -836,7 +877,8 @@ private suspend fun uploadUri(
     scope: String,
     mediaType: String,
     itemId: Int?,
-    source: String
+    source: String,
+    hintItemIds: String?
 ): MediaUploadResponse? {
     return withContext(Dispatchers.IO) {
         try {
@@ -872,7 +914,8 @@ private suspend fun uploadUri(
                 analyze = textBody("true"),
                 source = textBody(source),
                 clientCreatedAt = textBody(System.currentTimeMillis().toString()),
-                mimeType = textBody(mime)
+                mimeType = textBody(mime),
+                hintItemIds = hintItemIds?.let { textBody(it) }
             )
         } catch (_: Exception) {
             null

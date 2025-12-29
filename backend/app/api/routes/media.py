@@ -111,9 +111,14 @@ async def _latest_detection(db: AsyncSession, media_id: int) -> tuple[AIDetectio
 def _serialize_detection(det: AIDetection | None, objects: Iterable[AIDetectionObject]) -> dict | None:
     if not det:
         return None
+    hint_items = None
+    raw = getattr(det, "raw", None)
+    if isinstance(raw, dict):
+        hint_items = raw.get("hint_item_ids")
     return {
         "id": det.id,
         "status": det.status,
+        "hint_item_ids": hint_items,
         "objects": [
             _serialize_detection_object(obj)
             for obj in objects
@@ -159,10 +164,12 @@ async def _create_upload_log(
     owner_user_id: int,
     media_type: MediaType,
     source: str | None,
+    location_id: int | None,
 ) -> MediaUploadHistory:
     entry = MediaUploadHistory(
         workspace_id=workspace_id,
         owner_user_id=owner_user_id,
+        location_id=location_id,
         media_type=media_type,
         status=UploadStatus.IN_PROGRESS,
         source=source or "upload",
@@ -198,6 +205,21 @@ def _validate_mime(mime: str | None, media_type: MediaType) -> str:
     return mime_lower
 
 
+def _parse_hint_item_ids(value: str | None) -> list[int]:
+    if not value:
+        return []
+    parts = [p.strip() for p in value.replace(";", ",").split(",")]
+    result: list[int] = []
+    for part in parts:
+        if not part:
+            continue
+        try:
+            result.append(int(part))
+        except ValueError:
+            continue
+    return result
+
+
 def _validate_video_params(frame_stride: int | None, max_frames: int | None) -> tuple[int | None, int | None]:
     if frame_stride is not None and frame_stride <= 0:
         raise HTTPException(status_code=400, detail="video_frame_stride must be positive")
@@ -220,6 +242,7 @@ async def upload_media(
     analyze: bool = Form(True),
     source: str | None = Form("upload"),
     client_created_at: str | None = Form(None),
+    hint_item_ids: str | None = Form(None),
     video_frame_stride: int | None = Form(None),
     video_max_frames: int | None = Form(None),
     db: AsyncSession = Depends(get_db),
@@ -230,7 +253,9 @@ async def upload_media(
         raise HTTPException(status_code=400, detail="Unsupported media_type; allowed: photo, video, document")
     upload_log: MediaUploadHistory | None = None
     try:
-        upload_log = await _create_upload_log(db, workspace_id, owner_user_id, media_type_enum, source)
+        upload_log = await _create_upload_log(
+            db, workspace_id, owner_user_id, media_type_enum, source, location_id
+        )
         mime_lower = _validate_mime(mime_type or file.content_type, media_type_enum)
         base = Path(settings.media_public_path if scope == "public" else settings.media_private_path)
         safe_workspace = _sanitize_segment(str(workspace_id), "workspace")
@@ -293,6 +318,7 @@ async def upload_media(
                 db.add(ItemMedia(item_id=item_id, media_id=media.id))
                 await db.commit()
 
+        hint_items = _parse_hint_item_ids(hint_item_ids)
         analysis_status: dict | None = None
         if analyze:
             try:
@@ -305,6 +331,7 @@ async def upload_media(
                         db,
                         frame_stride=video_frame_stride or settings.video_frame_stride,
                         max_frames=video_max_frames or settings.video_max_frames,
+                        hint_item_ids=hint_items,
                     )
                     latest = None
                     if detection_ids:
@@ -314,7 +341,7 @@ async def upload_media(
                         "status": latest.status if latest else "done" if detection_ids else "pending",
                     }
                 else:
-                    det = await analyze_media(media.id, db)
+                    det = await analyze_media(media.id, db, hint_item_ids=hint_items)
                     analysis_status = {"detection_id": det.id, "status": det.status}
             except Exception as exc:  # noqa: BLE001
                 logger.exception("Analyze failed for media %s: %s", media.id, exc)
@@ -343,6 +370,9 @@ async def upload_media(
                 "source": source or "upload",
                 "size_bytes": size_bytes,
                 "mime": mime_type or file.content_type,
+                "location_id": location_id,
+                "item_id": item_id,
+                "hint_item_ids": hint_items,
             },
         )
 
@@ -383,6 +413,7 @@ async def upload_history(
     limit: int = 50,
     status: UploadStatus | None = None,
     source: str | None = None,
+    location_id: int | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     logger.info("media.history.list owner=%s limit=%s", owner_user_id, limit)
@@ -393,6 +424,8 @@ async def upload_history(
         stmt = stmt.where(MediaUploadHistory.status == status)
     if source:
         stmt = stmt.where(MediaUploadHistory.source == source)
+    if location_id:
+        stmt = stmt.where(MediaUploadHistory.location_id == location_id)
     rows = (await db.execute(stmt)).scalars().all()
     result: list[MediaUploadHistoryOut] = []
     for entry in rows:
@@ -412,6 +445,7 @@ async def upload_history(
                 media_id=entry.media_id,
                 workspace_id=entry.workspace_id,
                 owner_user_id=entry.owner_user_id,
+                location_id=entry.location_id,
                 media_type=entry.media_type,
                 status=entry.status,
                 source=entry.source,
