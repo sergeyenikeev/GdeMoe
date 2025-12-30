@@ -3,9 +3,12 @@ package com.gdemo.ui.screens.locations
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,11 +28,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.gdemo.data.local.loadConnection
 import com.gdemo.data.model.Item
 import com.gdemo.data.model.LocationCreateRequest
 import com.gdemo.data.model.LocationDto
 import com.gdemo.data.model.LocationUpdateRequest
+import com.gdemo.data.model.MediaDto
 import com.gdemo.data.remote.ApiClient
 import com.gdemo.util.AnalyticsLogger
 import kotlinx.coroutines.launch
@@ -39,18 +44,24 @@ fun LocationTreeScreen(paddingValues: PaddingValues) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val stored = remember { context.loadConnection() }
     val api = remember { ApiClient.create(ApiClient.sanitizeBaseUrl(stored.baseUrl)) }
+    val scopeSelection = remember { if (stored.scope.isBlank()) "private" else stored.scope }
     var locations by remember { mutableStateOf<List<LocationDto>>(emptyList()) }
     var itemsByLocation by remember { mutableStateOf<Map<Int, List<Item>>>(emptyMap()) }
+    var recentMedia by remember { mutableStateOf<List<MediaDto>>(emptyList()) }
     var status by remember { mutableStateOf("") }
     var newName by remember { mutableStateOf("") }
-    var newPhotoMediaId by remember { mutableStateOf("") }
+    var newPhotoMediaId by remember { mutableStateOf<Int?>(null) }
     var newParentExpanded by remember { mutableStateOf(false) }
     var newParentSelection by remember { mutableStateOf<LocationDto?>(null) }
     var editingLocation by remember { mutableStateOf<LocationDto?>(null) }
     var editName by remember { mutableStateOf("") }
-    var editPhotoMediaId by remember { mutableStateOf("") }
+    var editPhotoMediaId by remember { mutableStateOf<Int?>(null) }
     var editParentExpanded by remember { mutableStateOf(false) }
     var editParentSelection by remember { mutableStateOf<LocationDto?>(null) }
+    var showPhotoPicker by remember { mutableStateOf(false) }
+    var photoPickerForEdit by remember { mutableStateOf(false) }
+    var showVideoPicker by remember { mutableStateOf(false) }
+    var videoPickerLocation by remember { mutableStateOf<LocationDto?>(null) }
     val scope = rememberCoroutineScope()
 
     suspend fun loadLocations() {
@@ -62,8 +73,17 @@ fun LocationTreeScreen(paddingValues: PaddingValues) {
         }
     }
 
+    suspend fun loadRecentMedia() {
+        try {
+            recentMedia = api.recentMedia(scopeSelection)
+        } catch (e: Exception) {
+            status = "Failed to load media: ${e.localizedMessage}"
+        }
+    }
+
     LaunchedEffect(Unit) {
         loadLocations()
+        loadRecentMedia()
     }
 
     fun createLocation() {
@@ -74,7 +94,7 @@ fun LocationTreeScreen(paddingValues: PaddingValues) {
                 return@launch
             }
             try {
-                val photoId = newPhotoMediaId.toIntOrNull()
+                val photoId = newPhotoMediaId
                 val created = api.createLocation(
                     LocationCreateRequest(
                         name = trimmedName,
@@ -86,7 +106,7 @@ fun LocationTreeScreen(paddingValues: PaddingValues) {
                 )
                 locations = locations + created
                 newName = ""
-                newPhotoMediaId = ""
+                newPhotoMediaId = null
                 newParentSelection = null
                 status = "Location created"
                 AnalyticsLogger.event(
@@ -128,7 +148,7 @@ fun LocationTreeScreen(paddingValues: PaddingValues) {
     fun openEdit(location: LocationDto) {
         editingLocation = location
         editName = location.name
-        editPhotoMediaId = location.photo_media_id?.toString() ?: ""
+        editPhotoMediaId = location.photo_media_id
         editParentSelection = locations.firstOrNull { it.id == location.parent_id }
         editParentExpanded = false
     }
@@ -158,7 +178,7 @@ fun LocationTreeScreen(paddingValues: PaddingValues) {
                     api.clearLocationParent(target.id)
                 }
 
-                val newPhotoId = editPhotoMediaId.toIntOrNull()
+                val newPhotoId = editPhotoMediaId
                 val photoChanged = newPhotoId != target.photo_media_id
                 if (photoChanged) {
                     if (newPhotoId != null) {
@@ -182,6 +202,18 @@ fun LocationTreeScreen(paddingValues: PaddingValues) {
 
     fun locationLabel(location: LocationDto): String {
         return location.path ?: location.name
+    }
+
+    fun mediaUrl(media: MediaDto): String {
+        val base = ApiClient.sanitizeBaseUrl(stored.baseUrl).trimEnd('/')
+        val rel = (media.thumb_url ?: media.file_url).trimStart('/')
+        return "$base/$rel"
+    }
+
+    fun openVideoPicker(location: LocationDto) {
+        videoPickerLocation = location
+        showVideoPicker = true
+        scope.launch { loadRecentMedia() }
     }
 
     LazyColumn(
@@ -235,12 +267,37 @@ fun LocationTreeScreen(paddingValues: PaddingValues) {
                     ) {
                         Text("Select parent")
                     }
-                    OutlinedTextField(
-                        value = newPhotoMediaId,
-                        onValueChange = { newPhotoMediaId = it },
-                        label = { Text("Photo media ID (optional)") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    val selectedNewMedia = newPhotoMediaId?.let { id ->
+                        recentMedia.firstOrNull { it.id == id }
+                    }
+                    Text("Photo: ${selectedNewMedia?.id ?: "None"}")
+                    selectedNewMedia?.let { media ->
+                        AsyncImage(
+                            model = mediaUrl(media),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(140.dp)
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                photoPickerForEdit = false
+                                showPhotoPicker = true
+                                scope.launch { loadRecentMedia() }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Select photo")
+                        }
+                        Button(
+                            onClick = { newPhotoMediaId = null },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Clear")
+                        }
+                    }
                     Button(onClick = { createLocation() }, modifier = Modifier.fillMaxWidth()) {
                         Text("Create")
                     }
@@ -255,6 +312,7 @@ fun LocationTreeScreen(paddingValues: PaddingValues) {
                     Text("Photo media: ${loc.photo_media_id ?: "-"}")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { loadItemsFor(loc.id) }) { Text("Load items") }
+                        Button(onClick = { openVideoPicker(loc) }) { Text("Link video") }
                         Button(onClick = { openEdit(loc) }) { Text("Edit") }
                         Button(onClick = { deleteLocation(loc.id) }) { Text("Delete") }
                     }
@@ -323,12 +381,152 @@ fun LocationTreeScreen(paddingValues: PaddingValues) {
                     ) {
                         Text("Select parent")
                     }
-                    OutlinedTextField(
-                        value = editPhotoMediaId,
-                        onValueChange = { editPhotoMediaId = it },
-                        label = { Text("Photo media ID") },
+                    val selectedEditMedia = editPhotoMediaId?.let { id ->
+                        recentMedia.firstOrNull { it.id == id }
+                    }
+                    Text("Photo: ${selectedEditMedia?.id ?: editPhotoMediaId ?: "None"}")
+                    selectedEditMedia?.let { media ->
+                        AsyncImage(
+                            model = mediaUrl(media),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(140.dp)
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                photoPickerForEdit = true
+                                showPhotoPicker = true
+                                scope.launch { loadRecentMedia() }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Select photo")
+                        }
+                        Button(
+                            onClick = { editPhotoMediaId = null },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Clear")
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            editingLocation?.let { openVideoPicker(it) }
+                        },
                         modifier = Modifier.fillMaxWidth()
-                    )
+                    ) {
+                        Text("Link video")
+                    }
+                }
+            }
+        )
+    }
+
+    if (showPhotoPicker) {
+        val photoCandidates = recentMedia.filter { it.mime_type?.startsWith("image") == true }
+        AlertDialog(
+            onDismissRequest = { showPhotoPicker = false },
+            confirmButton = {
+                Button(onClick = { showPhotoPicker = false }) { Text("Close") }
+            },
+            title = { Text("Select photo") },
+            text = {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(photoCandidates) { media ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (photoPickerForEdit) {
+                                        editPhotoMediaId = media.id
+                                    } else {
+                                        newPhotoMediaId = media.id
+                                    }
+                                    showPhotoPicker = false
+                                    AnalyticsLogger.event(
+                                        "location_photo_select",
+                                        mapOf("mediaId" to media.id, "edit" to photoPickerForEdit)
+                                    )
+                                },
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            AsyncImage(
+                                model = mediaUrl(media),
+                                contentDescription = null,
+                                modifier = Modifier.height(64.dp)
+                            )
+                            Column {
+                                Text("ID ${media.id}")
+                                Text(media.mime_type ?: "image")
+                            }
+                        }
+                    }
+                    if (photoCandidates.isEmpty()) {
+                        item { Text("No photos found in recent media") }
+                    }
+                }
+            }
+        )
+    }
+
+    if (showVideoPicker) {
+        val videoCandidates = recentMedia.filter { it.mime_type?.startsWith("video") == true }
+        val target = videoPickerLocation
+        AlertDialog(
+            onDismissRequest = { showVideoPicker = false },
+            confirmButton = {
+                Button(onClick = { showVideoPicker = false }) { Text("Close") }
+            },
+            title = { Text("Select video") },
+            text = {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(videoCandidates) { media ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val location = target
+                                    if (location != null) {
+                                        scope.launch {
+                                            try {
+                                                api.linkLocationMedia(location.id, media.id)
+                                                status = "Video linked to location ${location.id}"
+                                                AnalyticsLogger.event(
+                                                    "location_video_link",
+                                                    mapOf("locationId" to location.id, "mediaId" to media.id)
+                                                )
+                                            } catch (e: Exception) {
+                                                status = "Failed to link video: ${e.localizedMessage}"
+                                            }
+                                        }
+                                    }
+                                    showVideoPicker = false
+                                },
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            AsyncImage(
+                                model = mediaUrl(media),
+                                contentDescription = null,
+                                modifier = Modifier.height(64.dp)
+                            )
+                            Column {
+                                Text("ID ${media.id}")
+                                Text(media.mime_type ?: "video")
+                            }
+                        }
+                    }
+                    if (videoCandidates.isEmpty()) {
+                        item { Text("No videos found in recent media") }
+                    }
                 }
             }
         )
