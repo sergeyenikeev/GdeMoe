@@ -35,14 +35,45 @@ SANITIZE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def _sanitize_segment(segment: str, fallback: str) -> str:
-    """Очищает кусок пути, чтобы не получить опасные директории и имена."""
+    """Очищает сегмент пути от опасных символов для безопасного хранения файлов.
+
+    Удаляет или заменяет символы, которые могут создать проблемы с файловой системой,
+    такие как слеши, точки в начале (для скрытых файлов) и другие небезопасные символы.
+    Если после очистки строка пустая, возвращает fallback.
+
+    Args:
+        segment (str): Исходный сегмент пути для очистки.
+        fallback (str): Значение по умолчанию, если после очистки ничего не осталось.
+
+    Returns:
+        str: Очищенный сегмент пути, безопасный для использования в файловой системе.
+
+    Raises:
+        Нет исключений, всегда возвращает строку.
+    """
     cleaned = SANITIZE_RE.sub("_", segment.strip())
     cleaned = cleaned.lstrip(".").strip("_")
     return cleaned or fallback
 
 
 def _ensure_extension(filename: str, mime: str | None, media_type: str) -> str:
-    """Добавляет расширение, если клиент прислал имя файла без него."""
+    """Добавляет расширение к имени файла, если оно отсутствует.
+
+    Если имя файла уже содержит точку (расширение), возвращает как есть.
+    Для изображений добавляет .jpg, если MIME-тип содержит 'jpeg'.
+    Для других типов использует media_type для определения расширения.
+
+    Args:
+        filename (str): Исходное имя файла.
+        mime (str | None): MIME-тип файла, если известен.
+        media_type (str): Тип медиа (например, 'photo', 'video').
+
+    Returns:
+        str: Имя файла с расширением.
+
+    Raises:
+        Нет исключений, всегда возвращает строку.
+    """
     name = os.path.basename(filename)
     if "." in name:
         return name
@@ -58,7 +89,22 @@ def _ensure_extension(filename: str, mime: str | None, media_type: str) -> str:
 
 
 async def _write_file(target_path: Path, file: UploadFile, max_bytes: int) -> tuple[int, str]:
-    """Пишет файл на диск потоково и параллельно считает SHA-256."""
+    """Пишет файл на диск потоково и параллельно считает SHA-256 хеш.
+
+    Читает файл по частям, записывает на диск и обновляет хеш.
+    Если размер превышает max_bytes, удаляет частично записанный файл и выбрасывает исключение.
+
+    Args:
+        target_path (Path): Путь, куда сохранить файл.
+        file (UploadFile): Загруженный файл для записи.
+        max_bytes (int): Максимальный разрешенный размер файла в байтах.
+
+    Returns:
+        tuple[int, str]: Кортеж из размера файла в байтах и SHA-256 хеша в hex-формате.
+
+    Raises:
+        HTTPException: Если размер файла превышает max_bytes.
+    """
     sha = hashlib.sha256()
     total = 0
     async with aiofiles.open(target_path, "wb") as out:
@@ -74,7 +120,21 @@ async def _write_file(target_path: Path, file: UploadFile, max_bytes: int) -> tu
 
 
 def _make_image_thumb(src: Path, dest: Path) -> None:
-    """Генерирует JPEG-превью для фото с максимальным размером 512×512."""
+    """Генерирует JPEG-превью для фото с максимальным размером 512×512.
+
+    Создает миниатюру изображения, сохраняя пропорции, и сохраняет как JPEG.
+    Директория назначения создается автоматически.
+
+    Args:
+        src (Path): Путь к исходному изображению.
+        dest (Path): Путь для сохранения превью.
+
+    Returns:
+        None
+
+    Raises:
+        Нет исключений, ошибки игнорируются (превью не критично).
+    """
     from PIL import Image
 
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -84,7 +144,21 @@ def _make_image_thumb(src: Path, dest: Path) -> None:
 
 
 def _make_video_thumb(src: Path, dest: Path) -> None:
-    """Сохраняет первый кадр видео как миниатюру (требуется OpenCV)."""
+    """Сохраняет первый кадр видео как миниатюру (требуется OpenCV).
+
+    Извлекает первый кадр из видео и сохраняет как изображение.
+    Если OpenCV недоступен или кадр не удалось прочитать, логирует предупреждение и пропускает.
+
+    Args:
+        src (Path): Путь к видеофайлу.
+        dest (Path): Путь для сохранения превью.
+
+    Returns:
+        None
+
+    Raises:
+        Нет исключений, ошибки логируются и игнорируются.
+    """
     try:
         import cv2  # noqa: WPS433
     except ImportError:
@@ -101,7 +175,21 @@ def _make_video_thumb(src: Path, dest: Path) -> None:
 
 
 async def _latest_detection(db: AsyncSession, media_id: int) -> tuple[AIDetection | None, list[AIDetectionObject]]:
-    """Возвращает последнюю детекцию по медиа вместе с объектами и кандидатами."""
+    """Возвращает последнюю детекцию по медиа вместе с объектами и кандидатами.
+
+    Выполняет запрос к базе данных для получения самой свежей AI-детекции для данного медиафайла,
+    а также всех связанных объектов детекции с их кандидатами.
+
+    Args:
+        db (AsyncSession): Асинхронная сессия базы данных.
+        media_id (int): ID медиафайла.
+
+    Returns:
+        tuple[AIDetection | None, list[AIDetectionObject]]: Кортеж из последней детекции (или None) и списка объектов.
+
+    Raises:
+        Нет исключений, возвращает None если детекция не найдена.
+    """
     det_stmt = (
         select(AIDetection)
         .where(AIDetection.media_id == media_id)
@@ -121,7 +209,21 @@ async def _latest_detection(db: AsyncSession, media_id: int) -> tuple[AIDetectio
 
 
 def _serialize_detection(det: AIDetection | None, objects: Iterable[AIDetectionObject]) -> dict | None:
-    """Формирует структуру анализа медиа для отдачи клиенту."""
+    """Формирует структуру анализа медиа для отдачи клиенту.
+
+    Создает словарь с информацией о детекции, включая статус, подсказки и список объектов.
+    Если детекция отсутствует, возвращает None.
+
+    Args:
+        det (AIDetection | None): Объект детекции или None.
+        objects (Iterable[AIDetectionObject]): Итерируемый объект с объектами детекции.
+
+    Returns:
+        dict | None: Словарь с данными анализа или None если детекция не найдена.
+
+    Raises:
+        Нет исключений.
+    """
     if not det:
         return None
     hint_items = None
@@ -140,7 +242,22 @@ def _serialize_detection(det: AIDetection | None, objects: Iterable[AIDetectionO
 
 
 def _serialize_media(m: Media, det: AIDetection | None, objects: Iterable[AIDetectionObject]) -> dict:
-    """Собирает словарь метаданных медиа с привязкой к последней детекции."""
+    """Собирает словарь метаданных медиа с привязкой к последней детекции.
+
+    Формирует полный словарь с информацией о медиафайле, включая пути к файлу и превью,
+    а также результаты AI-анализа.
+
+    Args:
+        m (Media): Объект медиа из базы данных.
+        det (AIDetection | None): Последняя детекция или None.
+        objects (Iterable[AIDetectionObject]): Объекты детекции.
+
+    Returns:
+        dict: Словарь с метаданными медиа и анализом.
+
+    Raises:
+        Нет исключений.
+    """
     scope_prefix = "private/" if m.path.startswith("private/") else ""
     return {
         "id": m.id,
@@ -156,7 +273,20 @@ def _serialize_media(m: Media, det: AIDetection | None, objects: Iterable[AIDete
 
 
 def _serialize_detection_object(obj: AIDetectionObject) -> dict:
-    """Составляет подробную информацию по объекту детекции с кандидатами."""
+    """Составляет подробную информацию по объекту детекции с кандидатами.
+
+    Формирует словарь с данными об обнаруженном объекте, включая bounding box,
+    уверенность, решения и список кандидатов для сопоставления.
+
+    Args:
+        obj (AIDetectionObject): Объект детекции из базы данных.
+
+    Returns:
+        dict: Словарь с детальной информацией об объекте.
+
+    Raises:
+        Нет исключений.
+    """
     return {
         "id": obj.id,
         "label": obj.label,
@@ -181,7 +311,25 @@ async def _create_upload_log(
     source: str | None,
     location_id: int | None,
 ) -> MediaUploadHistory:
-    """Создаёт запись истории сразу в статусе `in_progress`."""
+    """Создаёт запись истории сразу в статусе `in_progress`.
+
+    Добавляет новую запись в таблицу истории загрузок с начальным статусом IN_PROGRESS,
+    что позволяет отслеживать процесс загрузки и анализа.
+
+    Args:
+        db (AsyncSession): Асинхронная сессия базы данных.
+        workspace_id (int): ID рабочего пространства.
+        owner_user_id (int): ID пользователя-владельца.
+        media_type (MediaType): Тип медиа (фото/видео).
+        source (str | None): Источник загрузки (например, "upload").
+        location_id (int | None): ID локации, если указана.
+
+    Returns:
+        MediaUploadHistory: Созданная запись истории загрузки.
+
+    Raises:
+        Нет исключений, но может возникнуть IntegrityError при дубликатах.
+    """
     entry = MediaUploadHistory(
         workspace_id=workspace_id,
         owner_user_id=owner_user_id,
@@ -197,6 +345,22 @@ async def _create_upload_log(
 
 
 async def _mark_upload_failed(db: AsyncSession, entry: MediaUploadHistory | None, error: str) -> None:
+    """Отмечает загрузку как неудачную с указанием ошибки.
+
+    Выполняет rollback транзакции и обновляет статус записи истории на FAILED,
+    добавляя информацию об ошибке в ai_summary.
+
+    Args:
+        db (AsyncSession): Асинхронная сессия базы данных.
+        entry (MediaUploadHistory | None): Запись истории загрузки или None.
+        error (str): Описание ошибки.
+
+    Returns:
+        None
+
+    Raises:
+        Нет исключений, ошибки логируются.
+    """
     if entry is None:
         return
     try:
@@ -211,7 +375,22 @@ async def _mark_upload_failed(db: AsyncSession, entry: MediaUploadHistory | None
 
 
 def _validate_mime(mime: str | None, media_type: MediaType) -> str:
-    """Проверяет mime и мягко исправляет частый кейс mobile capture."""
+    """Проверяет mime и мягко исправляет частый кейс mobile capture.
+
+    Валидирует MIME-тип на соответствие разрешенным, автоматически исправляет
+    конфликты между media_type и MIME (например, фото с video MIME становится видео).
+    Используется для обработки загрузок с мобильных устройств.
+
+    Args:
+        mime (str | None): MIME-тип файла.
+        media_type (MediaType): Заявленный тип медиа.
+
+    Returns:
+        str: Нормализованный MIME-тип в нижнем регистре.
+
+    Raises:
+        HTTPException: Если MIME-тип не разрешен или конфликтует с media_type.
+    """
     mime_lower = (mime or "").lower()
     if mime_lower and mime_lower not in [m.lower() for m in settings.media_allowed_mimes]:
         raise HTTPException(status_code=400, detail=f"Unsupported mime type: {mime_lower}")
@@ -223,7 +402,20 @@ def _validate_mime(mime: str | None, media_type: MediaType) -> str:
 
 
 def _parse_hint_item_ids(value: str | None) -> list[int]:
-    """Разбирает список `hint_item_ids` из form-data в список чисел."""
+    """Разбирает список `hint_item_ids` из form-data в список чисел.
+
+    Парсит строку с ID предметов, разделенных запятыми или точками с запятой,
+    игнорируя некорректные значения.
+
+    Args:
+        value (str | None): Строка с ID через запятую или точку с запятой.
+
+    Returns:
+        list[int]: Список целых чисел ID предметов.
+
+    Raises:
+        Нет исключений, некорректные значения пропускаются.
+    """
     if not value:
         return []
     parts = [p.strip() for p in value.replace(";", ",").split(",")]
@@ -239,7 +431,20 @@ def _parse_hint_item_ids(value: str | None) -> list[int]:
 
 
 def _validate_video_params(frame_stride: int | None, max_frames: int | None) -> tuple[int | None, int | None]:
-    """Проверяет параметры выборки кадров для видео-анализа."""
+    """Проверяет параметры выборки кадров для видео-анализа.
+
+    Валидирует параметры frame_stride и max_frames, обеспечивая что они положительные.
+
+    Args:
+        frame_stride (int | None): Шаг выборки кадров (каждый N-й кадр).
+        max_frames (int | None): Максимальное количество кадров для анализа.
+
+    Returns:
+        tuple[int | None, int | None]: Кортеж валидированных параметров.
+
+    Raises:
+        HTTPException: Если параметры не положительные числа.
+    """
     if frame_stride is not None and frame_stride <= 0:
         raise HTTPException(status_code=400, detail="video_frame_stride must be positive")
     if max_frames is not None and max_frames <= 0:
@@ -266,14 +471,47 @@ async def upload_media(
     video_max_frames: int | None = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Основной upload-эндпоинт.
+    """Основной upload-эндпоинт для загрузки медиафайлов.
 
-    Последовательность такая:
-    1. создаём запись истории загрузки;
-    2. валидируем mime и готовим безопасный путь;
-    3. сохраняем файл и превью;
-    4. создаём запись Media и привязки;
-    5. запускаем анализ и синхронизируем историю.
+    Выполняет полную последовательность загрузки: создание записи истории, валидацию,
+    сохранение файла на диск, генерацию превью, создание записи Media в БД,
+    привязку к предметам и опциональный запуск AI-анализа.
+
+    Последовательность действий:
+    1. Создание записи истории загрузки в статусе IN_PROGRESS
+    2. Валидация MIME-типа и параметров
+    3. Подготовка безопасного пути хранения файла
+    4. Сохранение файла на диск с вычислением SHA-256 хеша
+    5. Генерация превью (для фото/видео)
+    6. Создание записи Media в базе данных
+    7. Привязка к предмету (если указан item_id)
+    8. Запуск AI-анализа (если analyze=True)
+    9. Обновление истории загрузки с финальным статусом
+
+    Args:
+        file (UploadFile): Загружаемый файл.
+        workspace_id (int): ID рабочего пространства (по умолчанию 2).
+        owner_user_id (int): ID пользователя-владельца (по умолчанию 1).
+        media_type (str): Тип медиа: "photo", "video", "document" (по умолчанию "photo").
+        mime_type (str | None): MIME-тип файла, если известен.
+        subdir (str): Поддиректория для хранения (по умолчанию "inbox").
+        scope (Literal["public", "private"]): Область видимости файла (по умолчанию "public").
+        item_id (int | None): ID предмета для привязки файла.
+        location_id (int | None): ID локации для привязки файла.
+        analyze (bool): Запускать ли AI-анализ после загрузки (по умолчанию True).
+        source (str | None): Источник загрузки (по умолчанию "upload").
+        client_created_at (str | None): Время создания на клиенте (не используется).
+        hint_item_ids (str | None): Список ID предметов-подсказок для AI через запятую.
+        video_frame_stride (int | None): Шаг выборки кадров для видео-анализа.
+        video_max_frames (int | None): Максимальное количество кадров для видео.
+        db (AsyncSession): Сессия базы данных.
+
+    Returns:
+        dict: Информация о загруженном медиафайле с ID, путем, размером, хешем и статусом анализа.
+
+    Raises:
+        HTTPException: При ошибках валидации (неподдерживаемый MIME, слишком большой файл и т.д.).
+        Exception: При неожиданных ошибках (записываются в лог и историю).
     """
     try:
         media_type_enum = MediaType(media_type)

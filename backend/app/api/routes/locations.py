@@ -20,7 +20,21 @@ logger = logging.getLogger(__name__)
 
 
 def _build_location_path(parent: Location | None, name: str) -> str:
-    """Собирает materialized path для дерева локаций."""
+    """Собирает materialized path для дерева локаций.
+
+    Создает путь в дереве локаций, используя materialized path паттерн.
+    Если родителя нет, возвращает просто имя. Иначе конкатенирует путь родителя с именем через точку.
+
+    Args:
+        parent (Location | None): Родительская локация или None для корневой.
+        name (str): Имя новой локации.
+
+    Returns:
+        str: Полный путь в дереве локаций.
+
+    Raises:
+        Нет исключений.
+    """
     if not parent:
         return name
     base = parent.path or str(parent.id)
@@ -28,7 +42,22 @@ def _build_location_path(parent: Location | None, name: str) -> str:
 
 
 async def _load_parent(db: AsyncSession, parent_id: int | None, current_id: int | None) -> Location | None:
-    """Загружает родителя и не даёт построить циклическую иерархию."""
+    """Загружает родителя и не даёт построить циклическую иерархию.
+
+    Проверяет существование родительской локации и предотвращает создание циклов
+    в дереве путем проверки, не является ли текущая локация предком предлагаемого родителя.
+
+    Args:
+        db (AsyncSession): Асинхронная сессия базы данных.
+        parent_id (int | None): ID предполагаемого родителя.
+        current_id (int | None): ID текущей локации (для проверки циклов).
+
+    Returns:
+        Location | None: Объект родительской локации или None если parent_id=None.
+
+    Raises:
+        HTTPException: Если родитель не найден, является собой или создает цикл.
+    """
     if parent_id is None:
         return None
     parent = await db.get(Location, parent_id)
@@ -49,7 +78,22 @@ async def _load_parent(db: AsyncSession, parent_id: int | None, current_id: int 
 async def _update_descendant_paths(
     db: AsyncSession, old_path: str | None, new_path: str | None
 ) -> None:
-    """Обновляет materialized path у всех потомков после перемещения узла."""
+    """Обновляет materialized path у всех потомков после перемещения узла.
+
+    Когда локация перемещается в дереве, необходимо обновить пути всех её потомков,
+    заменив старую часть пути на новую.
+
+    Args:
+        db (AsyncSession): Асинхронная сессия базы данных.
+        old_path (str | None): Старый путь локации.
+        new_path (str | None): Новый путь локации.
+
+    Returns:
+        None
+
+    Raises:
+        Нет исключений.
+    """
     if not old_path or not new_path or old_path == new_path:
         return
     pattern = f"{old_path}.%"
@@ -59,7 +103,21 @@ async def _update_descendant_paths(
 
 
 async def _validate_photo_media(db: AsyncSession, media_id: int) -> Media:
-    """Проверяет, что медиа существует и подходит на роль фото локации."""
+    """Проверяет, что медиа существует и подходит на роль фото локации.
+
+    Убеждается что медиафайл существует в базе данных и является фотографией,
+    а не видео или документом.
+
+    Args:
+        db (AsyncSession): Асинхронная сессия базы данных.
+        media_id (int): ID медиафайла.
+
+    Returns:
+        Media: Объект медиафайла.
+
+    Raises:
+        HTTPException: Если медиа не найдено или не является фотографией.
+    """
     media = await db.get(Media, media_id)
     if not media:
         raise HTTPException(status_code=404, detail="Media not found")
@@ -69,7 +127,19 @@ async def _validate_photo_media(db: AsyncSession, media_id: int) -> Media:
 
 
 def _serialize_location_media(media: Media) -> dict:
-    """Готовит медиа локации для ответа API."""
+    """Готовит медиа локации для ответа API.
+
+    Формирует словарь с информацией о медиафайле локации, включая URL для доступа к файлу и превью.
+
+    Args:
+        media (Media): Объект медиа из базы данных.
+
+    Returns:
+        dict: Словарь с метаданными медиа локации.
+
+    Raises:
+        Нет исключений.
+    """
     return {
         "id": media.id,
         "path": media.path,
@@ -82,7 +152,20 @@ def _serialize_location_media(media: Media) -> dict:
 @router.get("", response_model=list[LocationOut])
 @router.get("/", response_model=list[LocationOut])
 async def list_locations(db: AsyncSession = Depends(get_db)) -> list[Location]:
-    """Возвращает все локации в порядке, удобном для построения дерева."""
+    """Возвращает все локации в порядке, удобном для построения дерева.
+
+    Сортирует локации сначала по parent_id (nulls first), затем по id,
+    что позволяет клиенту эффективно построить дерево локаций.
+
+    Args:
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        list[Location]: Список всех локаций в отсортированном порядке.
+
+    Raises:
+        Нет исключений.
+    """
     res = await db.execute(select(Location).order_by(Location.parent_id.nullsfirst(), Location.id))
     return res.scalars().all()
 
@@ -90,7 +173,21 @@ async def list_locations(db: AsyncSession = Depends(get_db)) -> list[Location]:
 @router.post("", response_model=LocationOut, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=LocationOut, status_code=status.HTTP_201_CREATED)
 async def create_location(payload: LocationCreate, db: AsyncSession = Depends(get_db)) -> Location:
-    """Создаёт новую локацию и при необходимости привязывает фото."""
+    """Создаёт новую локацию и при необходимости привязывает фото.
+
+    Выполняет валидацию входных данных, проверяет родителя, создает materialized path,
+    сохраняет локацию в БД и опционально привязывает фото-медиа.
+
+    Args:
+        payload (LocationCreate): Данные для создания локации.
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        Location: Созданная локация с обновленными данными.
+
+    Raises:
+        HTTPException: При пустом имени, не найденном родителе, неверном медиа или несоответствии workspace.
+    """
     if not payload.name or not payload.name.strip():
         raise HTTPException(status_code=400, detail="Location name is required")
     parent = await _load_parent(db, payload.parent_id, None)
@@ -120,7 +217,22 @@ async def create_location(payload: LocationCreate, db: AsyncSession = Depends(ge
 
 @router.patch("/{location_id}", response_model=LocationOut)
 async def update_location(location_id: int, payload: LocationUpdate, db: AsyncSession = Depends(get_db)) -> Location:
-    """Обновляет локацию, включая перенос по дереву и смену фото."""
+    """Обновляет локацию, включая перенос по дереву и смену фото.
+
+    Позволяет изменить имя, родителя (с переносом в дереве), фото и другие поля.
+    При изменении родителя или имени обновляет materialized path для всей подветки.
+
+    Args:
+        location_id (int): ID локации для обновления.
+        payload (LocationUpdate): Данные для обновления.
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        Location: Обновленная локация.
+
+    Raises:
+        HTTPException: При не найденной локации, пустом имени или неверном медиа.
+    """
     loc = await db.get(Location, location_id)
     if not loc:
         raise HTTPException(status_code=404, detail="Location not found")
@@ -164,7 +276,20 @@ async def update_location(location_id: int, payload: LocationUpdate, db: AsyncSe
 
 @router.delete("/{location_id}/parent", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_location_parent(location_id: int, db: AsyncSession = Depends(get_db)):
-    """Поднимает локацию в корень дерева."""
+    """Поднимает локацию в корень дерева.
+
+    Устанавливает parent_id в None и обновляет materialized path для локации и её потомков.
+
+    Args:
+        location_id (int): ID локации.
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        None
+
+    Raises:
+        HTTPException: Если локация не найдена.
+    """
     loc = await db.get(Location, location_id)
     if not loc:
         raise HTTPException(status_code=404, detail="Location not found")
@@ -179,7 +304,21 @@ async def clear_location_parent(location_id: int, db: AsyncSession = Depends(get
 
 @router.delete("/{location_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_location(location_id: int, db: AsyncSession = Depends(get_db)):
-    """Удаляет локацию."""
+    """Удаляет локацию.
+
+    Удаляет локацию из базы данных. Обратите внимание: связанные предметы и медиа остаются,
+    но их location_id становится None.
+
+    Args:
+        location_id (int): ID локации для удаления.
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        None
+
+    Raises:
+        HTTPException: Если локация не найдена.
+    """
     loc = await db.get(Location, location_id)
     if not loc:
         raise HTTPException(status_code=404, detail="Location not found")
@@ -190,7 +329,21 @@ async def delete_location(location_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.get("/{location_id}/items", response_model=list[ItemOut])
 async def items_for_location(location_id: int, db: AsyncSession = Depends(get_db)) -> list[ItemOut]:
-    """Возвращает предметы, лежащие в конкретной локации."""
+    """Возвращает предметы, лежащие в конкретной локации.
+
+    Выбирает все предметы, привязанные к данной локации, сортирует по времени создания
+    (новые первыми) и сериализует их с полной информацией.
+
+    Args:
+        location_id (int): ID локации.
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        list[ItemOut]: Список сериализованных предметов.
+
+    Raises:
+        Нет исключений (если локация не существует, вернется пустой список).
+    """
     stmt = select(Item).where(Item.location_id == location_id).order_by(Item.created_at.desc())
     items = (await db.execute(stmt)).scalars().all()
     return [await _serialize_item(item, db) for item in items]
@@ -198,7 +351,21 @@ async def items_for_location(location_id: int, db: AsyncSession = Depends(get_db
 
 @router.get("/{location_id}/media")
 async def list_location_media(location_id: int, db: AsyncSession = Depends(get_db)) -> list[dict]:
-    """Возвращает медиа, привязанные к локации."""
+    """Возвращает медиа, привязанные к локации.
+
+    Выбирает все медиафайлы, привязанные к данной локации, сортирует по ID
+    (новые первыми) и сериализует их для ответа API.
+
+    Args:
+        location_id (int): ID локации.
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        list[dict]: Список сериализованных медиафайлов.
+
+    Raises:
+        HTTPException: Если локация не найдена.
+    """
     location = await db.get(Location, location_id)
     if not location:
         raise HTTPException(status_code=404, detail="Location not found")
@@ -210,7 +377,22 @@ async def list_location_media(location_id: int, db: AsyncSession = Depends(get_d
 
 @router.post("/{location_id}/media/{media_id}", status_code=status.HTTP_201_CREATED)
 async def link_media_to_location(location_id: int, media_id: int, db: AsyncSession = Depends(get_db)) -> dict:
-    """Привязывает уже загруженное медиа к локации."""
+    """Привязывает уже загруженное медиа к локации.
+
+    Устанавливает location_id для существующего медиафайла, связывая его с локацией.
+    Проверяет, что локация и медиа существуют и принадлежат одному workspace.
+
+    Args:
+        location_id (int): ID локации.
+        media_id (int): ID медиафайла.
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        dict: Подтверждение привязки с ID локации и медиа.
+
+    Raises:
+        HTTPException: Если локация или медиа не найдены, или workspace не совпадает.
+    """
     location = await db.get(Location, location_id)
     media = await db.get(Media, media_id)
     if not location or not media:
@@ -225,7 +407,22 @@ async def link_media_to_location(location_id: int, media_id: int, db: AsyncSessi
 
 @router.post("/{location_id}/photo/{media_id}", status_code=status.HTTP_201_CREATED)
 async def set_location_photo(location_id: int, media_id: int, db: AsyncSession = Depends(get_db)) -> dict:
-    """Делает конкретное фото главной фотографией локации."""
+    """Делает конкретное фото главной фотографией локации.
+
+    Устанавливает photo_media_id для локации и привязывает медиа к локации.
+    Медиа должно быть фотографией и принадлежать тому же workspace.
+
+    Args:
+        location_id (int): ID локации.
+        media_id (int): ID фото-медиа.
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        dict: Подтверждение установки с ID локации и фото.
+
+    Raises:
+        HTTPException: Если локация не найдена, медиа не подходит или workspace не совпадает.
+    """
     location = await db.get(Location, location_id)
     if not location:
         raise HTTPException(status_code=404, detail="Location not found")
@@ -241,7 +438,20 @@ async def set_location_photo(location_id: int, media_id: int, db: AsyncSession =
 
 @router.delete("/{location_id}/photo", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_location_photo(location_id: int, db: AsyncSession = Depends(get_db)):
-    """Снимает главную фотографию с локации."""
+    """Снимает главную фотографию с локации.
+
+    Устанавливает photo_media_id локации в None, убирая главную фотографию.
+
+    Args:
+        location_id (int): ID локации.
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        None
+
+    Raises:
+        HTTPException: Если локация не найдена.
+    """
     location = await db.get(Location, location_id)
     if not location:
         raise HTTPException(status_code=404, detail="Location not found")
