@@ -33,7 +33,18 @@ from typing import Dict, Iterable, List, Tuple
 
 
 def _safe_float(value: str) -> float:
-    """Безопасно приводит строку к float, иначе возвращает 0.0."""
+    """Безопасно преобразует строку в число с плавающей точкой.
+
+    Если преобразование невозможно (например, пустая строка или нечисловое значение),
+    возвращает 0.0 вместо вызова исключения. Это полезно при обработке
+    CSV-файлов с потенциально повреждёнными данными.
+
+    Args:
+        value: Строка для преобразования.
+
+    Returns:
+        Число с плавающей точкой или 0.0 в случае ошибки.
+    """
     try:
         return float(value)
     except Exception:
@@ -41,7 +52,18 @@ def _safe_float(value: str) -> float:
 
 
 def _load_manifest(path: Path) -> List[dict]:
-    """Читает manifest CSV целиком в память."""
+    """Загружает manifest-файл в формате CSV в список словарей.
+
+    Функция читает CSV-файл с заголовками, где каждая строка
+    представляет собой запись с аннотациями для датасета.
+    Возвращает список словарей для дальнейшей обработки.
+
+    Args:
+        path: Путь к manifest CSV-файлу.
+
+    Returns:
+        Список словарей с данными из CSV.
+    """
     rows: List[dict] = []
     with path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
@@ -51,15 +73,29 @@ def _load_manifest(path: Path) -> List[dict]:
 
 
 def _ensure_dir(path: Path) -> None:
-    """Создаёт директорию, если её ещё нет."""
+    """Создаёт директорию и все необходимые родительские директории.
+
+    Если директория уже существует, ничего не делает.
+    Используется для подготовки структуры папок перед копированием файлов.
+
+    Args:
+        path: Путь к директории для создания.
+    """
     path.mkdir(parents=True, exist_ok=True)
 
 
 def _link_or_copy(src: Path, dst: Path, mode: str) -> None:
-    """Либо делает hardlink, либо копирует файл.
+    """Копирует файл или создаёт hardlink в зависимости от режима.
 
-    `link` удобен для экономии места. Если hardlink не получился,
-    скрипт тихо откатывается к обычному копированию.
+    В режиме 'link' пытается создать hardlink для экономии дискового пространства.
+    Если hardlink невозможен (например, на разных файловых системах),
+    откатывается к обычному копированию файла. Если файл назначения уже существует,
+    ничего не делает.
+
+    Args:
+        src: Путь к исходному файлу.
+        dst: Путь к файлу назначения.
+        mode: Режим ('link' для hardlink, иначе копирование).
     """
     if dst.exists():
         return
@@ -74,7 +110,19 @@ def _link_or_copy(src: Path, dst: Path, mode: str) -> None:
 
 
 def _image_root_for(row: dict, paths: dict) -> Path | None:
-    """Определяет корневую папку с исходными изображениями по dataset/split."""
+    """Определяет корневую директорию с изображениями для данной записи.
+
+    На основе dataset и split из manifest-строки возвращает путь
+    к папке с исходными изображениями. Поддерживает датасеты:
+    COCO, RPC, SKU110k, Grozi.
+
+    Args:
+        row: Словарь с данными строки manifest.
+        paths: Словарь с путями к директориям изображений.
+
+    Returns:
+        Путь к корневой директории изображений или None, если dataset неизвестен.
+    """
     dataset = row["dataset"]
     split = row["split"]
     if dataset == "coco":
@@ -89,11 +137,19 @@ def _image_root_for(row: dict, paths: dict) -> Path | None:
 
 
 def _group_rows(rows: Iterable[dict]) -> Dict[Tuple[str, str, str, str], List[dict]]:
-    """Группирует manifest-строки по изображению.
+    """Группирует строки manifest по уникальным изображениям.
 
-    В manifest одна картинка может встречаться много раз — по одному bbox
-    на каждую аннотацию. Для YOLO нам нужно сначала собрать их обратно в
-    единый набор строк на изображение, а уже потом записать один label-файл.
+    В исходных manifest-файлах одно изображение может иметь несколько
+    аннотаций (bbox), поэтому строки группируются по ключу
+    (dataset, split, image_id, file_name). Это позволяет собрать
+    все bbox для одного изображения перед записью YOLO label-файла.
+
+    Args:
+        rows: Итератор по строкам manifest.
+
+    Returns:
+        Словарь, где ключ - кортеж (dataset, split, image_id, file_name),
+        значение - список строк для этого изображения.
     """
     grouped: Dict[Tuple[str, str, str, str], List[dict]] = {}
     for row in rows:
@@ -107,10 +163,16 @@ def _write_labels(
     rows: List[dict],
     class_to_idx: Dict[str, int],
 ) -> None:
-    """Пишет YOLO label-файл из списка manifest-строк.
+    """Записывает YOLO label-файл для одного изображения.
 
-    В manifest bbox хранится как абсолютные `x1,y1,x2,y2`, а YOLO ожидает
-    нормализованный формат `class xc yc w h`.
+    Преобразует абсолютные координаты bbox из manifest в нормализованный
+    формат YOLO (центр и размеры относительно ширины/высоты изображения).
+    Пропускает классы, не входящие в список classes.
+
+    Args:
+        label_path: Путь к выходному label-файлу (.txt).
+        rows: Список строк manifest для одного изображения.
+        class_to_idx: Словарь соответствия названий классов их индексам.
     """
     lines: List[str] = []
     for row in rows:
@@ -146,7 +208,22 @@ def build_dataset(
     max_images_per_dataset: int | None,
     seed: int,
 ) -> None:
-    """Собирает train/val директории и пишет `dataset.yaml`."""
+    """Создаёт структуру YOLO-датасета из manifest-файлов.
+
+    Загружает train и val manifest, группирует аннотации по изображениям,
+    копирует или линкует изображения в соответствующие папки, записывает
+    label-файлы в формате YOLO и создаёт dataset.yaml для Ultralytics.
+
+    Args:
+        train_manifest: Путь к manifest для тренировочных данных.
+        val_manifest: Путь к manifest для валидационных данных.
+        out_dir: Выходная директория для датасета.
+        paths: Словарь путей к исходным изображениям по датасетам.
+        classes: Список названий классов.
+        mode: Режим копирования ('link' или 'copy').
+        max_images_per_dataset: Максимум изображений на датасет (опционально).
+        seed: Seed для случайности.
+    """
     out_images_train = out_dir / "images" / "train"
     out_images_val = out_dir / "images" / "val"
     out_labels_train = out_dir / "labels" / "train"
@@ -206,6 +283,11 @@ def build_dataset(
 
 
 def main() -> None:
+    """Главная функция скрипта для сборки YOLO-датасета.
+
+    Парсит аргументы командной строки, подготавливает пути и классы,
+    затем вызывает build_dataset для создания датасета.
+    """
     parser = argparse.ArgumentParser(description="Build YOLO dataset from manifests.")
     parser.add_argument("--train-manifest", type=Path, required=True)
     parser.add_argument("--val-manifest", type=Path, required=True)

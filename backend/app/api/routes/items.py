@@ -26,7 +26,19 @@ router = APIRouter(prefix="/items", tags=["items"])
 
 
 async def _item_tags(item_id: int, db: AsyncSession) -> list[str]:
-    """Возвращает список текстовых тегов для одного предмета."""
+    """Возвращает список текстовых тегов, связанных с указанным предметом.
+
+    Эта функция выполняет запрос к базе данных для получения всех тегов,
+    привязанных к предмету через промежуточную таблицу ItemTag.
+    Возвращает список строк с названиями тегов.
+
+    Args:
+        item_id: Идентификатор предмета.
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Список названий тегов.
+    """
     stmt = (
         select(Tag.name)
         .join(ItemTag, ItemTag.tag_id == Tag.id)
@@ -37,10 +49,22 @@ async def _item_tags(item_id: int, db: AsyncSession) -> list[str]:
 
 
 async def _serialize_item(item: Item, db: AsyncSession) -> ItemOut:
-    """Собирает `ItemOut` из ORM-объекта и нормализует JSON-атрибуты.
+    """Собирает объект ItemOut из ORM-модели Item с нормализацией атрибутов.
+
+    Функция преобразует данные предмета из базы данных в формат,
+    подходящий для ответа API. Особое внимание уделяется обработке
+    JSON-атрибутов, которые могут содержать исторические данные
+    в разных форматах. Также загружает связанные теги.
 
     Часть полей исторически хранится внутри `attributes`, но мобильный клиент
     ожидает их как обычные верхнеуровневые поля ответа.
+
+    Args:
+        item: ORM-объект предмета.
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Объект ItemOut для ответа API.
     """
     tags = await _item_tags(item.id, db)
     attrs: dict = item.attributes or {}
@@ -96,7 +120,18 @@ async def _serialize_item(item: Item, db: AsyncSession) -> ItemOut:
 
 @router.get("/", response_model=list[ItemOut])
 async def list_items(db: AsyncSession = Depends(get_db)) -> list[ItemOut]:
-    """Возвращает последние предметы workspace."""
+    """Возвращает список последних предметов в workspace.
+
+    Функция извлекает до 100 последних созданных предметов из базы данных,
+    сортируя их по времени создания в убывающем порядке. Каждый предмет
+    сериализуется в формат ItemOut, включая связанные теги и нормализованные атрибуты.
+
+    Args:
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Список объектов ItemOut.
+    """
     result = await db.execute(select(Item).order_by(Item.created_at.desc()).limit(100))
     items = result.scalars().all()
     return [await _serialize_item(item, db) for item in items]
@@ -108,7 +143,20 @@ async def search_items(
     status: ItemStatus | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> list[ItemOut]:
-    """Простой поиск по title/description/category и статусу."""
+    """Выполняет поиск предметов по текстовому запросу и статусу.
+
+    Функция позволяет искать предметы по названию, описанию или категории,
+    используя нечувствительный к регистру поиск. Также можно фильтровать по статусу.
+    Возвращает до 100 результатов, отсортированных по времени создания.
+
+    Args:
+        query: Текстовый запрос для поиска (опционально).
+        status: Статус предмета для фильтрации (опционально).
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Список найденных предметов в формате ItemOut.
+    """
     stmt = select(Item).order_by(Item.created_at.desc()).limit(100)
     if query:
         pattern = f"%{query.lower()}%"
@@ -130,10 +178,20 @@ async def create_item(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ItemOut:
-    """Создаёт новый предмет.
+    """Создаёт новый предмет в базе данных.
 
-    На входе часть полей приходит отдельно, а в БД они укладываются
-    в `attributes`, чтобы не раздувать таблицу под редко используемые поля.
+    Функция принимает данные для создания предмета, нормализует их,
+    сохраняет в базу данных и связывает с тегами. Часть полей,
+    таких как purchase_datetime, quantity и т.д., сохраняются в JSON-атрибутах
+    для гибкости схемы. После создания предмета возвращается его полное представление.
+
+    Args:
+        payload: Данные для создания предмета.
+        db: Асинхронная сессия базы данных.
+        user: Текущий аутентифицированный пользователь.
+
+    Returns:
+        Созданный предмет в формате ItemOut.
     """
     data = payload.dict(exclude_none=True)
     # На клиенте статус может приехать строкой; нормализуем в enum.
@@ -167,7 +225,22 @@ async def create_item(
 
 @router.get("/{item_id}", response_model=ItemOut)
 async def get_item(item_id: int, db: AsyncSession = Depends(get_db)) -> Item:
-    """Возвращает одну карточку предмета."""
+    """Возвращает детальную информацию о предмете по его ID.
+
+    Функция извлекает предмет из базы данных по идентификатору,
+    проверяет его существование и возвращает полное представление
+    в формате ItemOut, включая теги и нормализованные атрибуты.
+
+    Args:
+        item_id: Идентификатор предмета.
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Предмет в формате ItemOut.
+
+    Raises:
+        HTTPException: Если предмет не найден.
+    """
     item = await db.get(Item, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -180,7 +253,24 @@ async def update_item(
     payload: ItemUpdate,
     db: AsyncSession = Depends(get_db),
 ) -> ItemOut:
-    """Частично обновляет предмет, сохраняя старые значения в `attributes`."""
+    """Частично обновляет информацию о предмете.
+
+    Функция позволяет обновить только переданные поля предмета,
+    сохраняя существующие значения в JSON-атрибутах. Также обновляет
+    связанные теги, если они переданы. После обновления возвращает
+    полное представление предмета.
+
+    Args:
+        item_id: Идентификатор предмета.
+        payload: Данные для обновления.
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Обновлённый предмет в формате ItemOut.
+
+    Raises:
+        HTTPException: Если предмет не найден.
+    """
     item = await db.get(Item, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -217,7 +307,19 @@ async def delete_item(
     item_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """Удаляет предмет целиком."""
+    """Удаляет предмет из базы данных.
+
+    Функция проверяет существование предмета по ID, затем удаляет его
+    из базы данных. Все связанные данные (теги, медиа и т.д.) удаляются
+    каскадно благодаря настройкам ORM.
+
+    Args:
+        item_id: Идентификатор предмета для удаления.
+        db: Асинхронная сессия базы данных.
+
+    Raises:
+        HTTPException: Если предмет не найден.
+    """
     item = await db.get(Item, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -227,7 +329,20 @@ async def delete_item(
 
 
 def _serialize_media(media: Media, detection: AIDetection | None, objects: list[AIDetectionObject]) -> dict:
-    """Упрощённая сериализация медиа в контексте карточки предмета."""
+    """Сериализует медиа-объект с информацией о детекции для ответа API.
+
+    Функция преобразует ORM-объекты Media, AIDetection и список AIDetectionObject
+    в словарь, подходящий для JSON-ответа. Включает URL для доступа к файлу
+    и детали распознанных объектов, если детекция доступна.
+
+    Args:
+        media: ORM-объект медиа-файла.
+        detection: ORM-объект детекции AI (может быть None).
+        objects: Список объектов, распознанных в медиа.
+
+    Returns:
+        Словарь с данными медиа и детекции.
+    """
     return {
         "id": media.id,
         "path": media.path,
@@ -256,7 +371,22 @@ def _serialize_media(media: Media, detection: AIDetection | None, objects: list[
 
 @router.get("/{item_id}/media")
 async def list_item_media(item_id: int, db: AsyncSession = Depends(get_db)):
-    """Возвращает медиа, привязанные к предмету, вместе с последней детекцией."""
+    """Возвращает список медиа-файлов, связанных с предметом.
+
+    Функция извлекает все медиа, привязанные к предмету через ItemMedia,
+    и для каждого медиа получает последнюю детекцию AI с распознанными объектами.
+    Возвращает список сериализованных медиа-объектов.
+
+    Args:
+        item_id: Идентификатор предмета.
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Список словарей с данными медиа и детекций.
+
+    Raises:
+        HTTPException: Если предмет не найден.
+    """
     item = await db.get(Item, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -286,7 +416,23 @@ async def list_item_media(item_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{item_id}/media/{media_id}", status_code=status.HTTP_201_CREATED)
 async def link_media_to_item(item_id: int, media_id: int, db: AsyncSession = Depends(get_db)):
-    """Создаёт связь между предметом и уже загруженным медиа."""
+    """Связывает существующий медиа-файл с предметом.
+
+    Функция проверяет существование предмета и медиа, затем создаёт
+    связь между ними в таблице ItemMedia, если она ещё не существует.
+    Это позволяет прикреплять фото или видео к предметам.
+
+    Args:
+        item_id: Идентификатор предмета.
+        media_id: Идентификатор медиа-файла.
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Словарь с ID предмета и медиа.
+
+    Raises:
+        HTTPException: Если предмет или медиа не найдены.
+    """
     item = await db.get(Item, item_id)
     media = await db.get(Media, media_id)
     if not item or not media:
@@ -306,7 +452,22 @@ async def unlink_media_from_item(
     delete_file: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
-    """Удаляет связь item-media и при необходимости сам файл с каскадной очисткой."""
+    """Удаляет связь между предметом и медиа-файлом.
+
+    Функция удаляет запись о связи из таблицы ItemMedia. Если параметр
+    delete_file установлен в True, также удаляет сам медиа-объект из базы
+    и пытается удалить физический файл с диска. Каскадно удаляет связанные
+    детекции AI для предотвращения orphaned данных.
+
+    Args:
+        item_id: Идентификатор предмета.
+        media_id: Идентификатор медиа-файла.
+        delete_file: Флаг, указывающий, удалять ли также сам файл.
+        db: Асинхронная сессия базы данных.
+
+    Raises:
+        HTTPException: Если связь не найдена.
+    """
     link_stmt = select(ItemMedia).where(ItemMedia.item_id == item_id, ItemMedia.media_id == media_id)
     link = (await db.execute(link_stmt)).scalar_one_or_none()
     if not link:
@@ -335,10 +496,18 @@ async def unlink_media_from_item(
 
 
 async def _upsert_tags(item_id: int, workspace_id: int, tags: list[str], db: AsyncSession):
-    """Пересоздаёт набор тегов для предмета.
+    """Обновляет набор тегов для предмета, заменяя существующие.
 
-    Здесь выбран простой путь: полностью очищаем старые связи и создаём новые.
-    Для текущих объёмов данных это надёжнее и проще, чем дифф по множествам.
+    Функция удаляет все текущие связи предмета с тегами, затем создаёт
+    новые связи для переданного списка тегов. Если тег не существует,
+    он создаётся в базе данных. Этот подход прост и эффективен для
+    небольших списков тегов.
+
+    Args:
+        item_id: Идентификатор предмета.
+        workspace_id: Идентификатор workspace для тегов.
+        tags: Список названий тегов.
+        db: Асинхронная сессия базы данных.
     """
     # Сначала удаляем старые связи item-tag.
     await db.execute(delete(ItemTag).where(ItemTag.item_id == item_id))
