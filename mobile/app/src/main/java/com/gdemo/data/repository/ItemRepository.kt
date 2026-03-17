@@ -3,6 +3,12 @@ package com.gdemo.data.repository
 import com.gdemo.data.model.Item
 import com.gdemo.data.model.LocationNode
 
+/**
+ * Локальный демо-репозиторий.
+ *
+ * Нужен как простая заглушка для экранов, которые можно показать даже без
+ * полноценного backend-соединения.
+ */
 class ItemRepository {
     fun demoItems(): List<Item> = listOf(
         Item(id = 1, title = "Перфоратор Bosch", status = "ok", location = "Дом / Шкаф 2"),

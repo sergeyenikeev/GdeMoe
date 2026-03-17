@@ -31,6 +31,12 @@ import retrofit2.http.Query
 import retrofit2.http.Headers
 import retrofit2.Response
 
+/**
+ * Контракт мобильного клиента с backend API.
+ *
+ * Интерфейс довольно плоский, поэтому при добавлении нового endpoint
+ * обычно начинают именно с этого файла.
+ */
 interface ApiService {
     @GET("/api/v1/health")
     suspend fun health(): Map<String, String>
@@ -53,6 +59,7 @@ interface ApiService {
     @POST("/api/v1/locations")
     suspend fun createLocation(@Body body: LocationCreateRequest): LocationDto
 
+    // Блок локаций: дерево, медиа и главная фотография локации.
     @PATCH("/api/v1/locations/{id}")
     suspend fun updateLocation(@Path("id") id: Int, @Body body: LocationUpdateRequest): LocationDto
 
@@ -75,6 +82,7 @@ interface ApiService {
     @Headers("Content-Type: application/json")
     suspend fun importProductLink(@Body body: ProductImportRequest): ProductImportResponse
 
+    // Импорт чека идёт отдельно, потому что backend принимает multipart-файл.
     @Multipart
     @POST("/api/v1/imports/receipt")
     suspend fun importReceipt(
@@ -101,6 +109,7 @@ interface ApiService {
     @DELETE("/api/v1/items/{id}")
     suspend fun deleteItem(@Path("id") id: Int): Response<Unit>
 
+    // Медиа-блок: upload, привязки к item/location и журнал загрузок.
     @GET("/api/v1/items/{id}/media")
     suspend fun itemMedia(@Path("id") id: Int): List<MediaDto>
 
@@ -144,6 +153,7 @@ interface ApiService {
     @GET("/api/v1/media/{id}")
     suspend fun mediaDetails(@Path("id") id: Int): MediaDto
 
+    // AI-review: очередь, решения пользователя и точечное обновление объектов.
     @GET("/api/v1/ai/detections")
     suspend fun aiDetections(@Query("status") status: String = "pending"): List<AiDetectionDto>
 

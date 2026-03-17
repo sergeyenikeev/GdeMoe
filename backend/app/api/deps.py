@@ -1,3 +1,5 @@
+"""Общие зависимости для FastAPI-маршрутов."""
+
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +13,10 @@ async def get_db() -> AsyncSession:
 
 
 async def get_current_user() -> User:
-    # Demo stub user; replace with real auth/JWT later
+    """Временная заглушка пользователя.
+
+    Сейчас проект работает без полноценного JWT-auth, поэтому маршруты,
+    которым нужен пользователь, получают один и тот же демо-объект.
+    """
     user = User(id=1, email="demo@gdemo.app", hashed_password="demo", is_active=True)  # type: ignore[arg-type]
     return user

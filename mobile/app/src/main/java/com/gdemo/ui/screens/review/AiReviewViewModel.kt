@@ -19,6 +19,13 @@ data class AiReviewUiState(
     val error: String? = null
 )
 
+/**
+ * ViewModel экрана AI Review.
+ *
+ * Держит две связанные ленты:
+ * - очередь необработанных детекций;
+ * - историю загрузок и уже принятых решений.
+ */
 class AiReviewViewModel(
     baseUrl: String
 ) : ViewModel() {
@@ -33,6 +40,8 @@ class AiReviewViewModel(
     }
 
     fun refresh() = viewModelScope.launch {
+        // Очередь и история грузятся отдельно, чтобы экран мог показать хотя бы
+        // одну из секций, даже если вторая временно не ответила.
         runCatching {
             _ui.value = _ui.value.copy(isLoading = true, error = null)
             val data = repo.pending()
@@ -61,6 +70,7 @@ class AiReviewViewModel(
         }.onFailure { err ->
             _ui.value = _ui.value.copy(error = err.localizedMessage)
         }
+        // После действия обновляем обе вкладки: запись уходит из Queue и появляется в History.
         refresh()
         refreshHistory()
     }
@@ -82,6 +92,7 @@ class AiReviewViewModel(
         AnalyticsLogger.event("ai_object_update", mapOf("objectId" to objectId, "itemId" to itemId, "locationId" to locationId))
         runCatching { repo.updateObject(objectId, itemId, locationId, decision) }
             .onFailure { _ui.value = _ui.value.copy(error = it.localizedMessage) }
+        // Редактирование объекта меняет summary и может повлиять на историю.
         refresh()
         refreshHistory()
     }

@@ -1,9 +1,10 @@
-"""
-AI pipeline:
-- загружает медиа
-- детектит объекты (YOLO или фолбэк)
-- считает эмбеддинги (CLIP, если доступен)
-- создает записи детекций с bbox/labels
+"""Основной пайплайн анализа изображений.
+
+В нормальном режиме здесь происходит такая цепочка:
+1. читаем сохранённый файл;
+2. детектим объекты через YOLO или фолбэк;
+3. считаем эмбеддинги для матчинга, если доступен CLIP;
+4. создаём записи детекций и кандидатов привязки к предметам.
 """
 
 from io import BytesIO
@@ -38,6 +39,7 @@ HINT_CANDIDATE_SCORE = 0.95
 
 
 def _resolve_media_path(media_path: str) -> Path:
+    """Преобразует путь из БД в реальный путь на диске."""
     rel_path = Path(media_path)
     if rel_path.is_absolute():
         return rel_path
@@ -53,6 +55,7 @@ async def _load_item_media_embeddings(
     location_id: int | None,
     max_items: int,
 ) -> list[tuple[int, np.ndarray]]:
+    """Собирает эмбеддинги по последним фото предметов в workspace."""
     stmt = (
         select(Item.id, Media.path, Media.mime_type)
         .join(ItemMedia, ItemMedia.item_id == Item.id)
@@ -92,6 +95,7 @@ def _top_k_candidates(
     item_embeddings: Iterable[tuple[int, np.ndarray]],
     top_k: int,
 ) -> list[tuple[int, float]]:
+    """Считает косинусную близость и оставляет лучшие совпадения."""
     q = query_embedding.astype("float32")
     q_norm = np.linalg.norm(q) or 1.0
     q = q / q_norm
@@ -108,6 +112,7 @@ async def _resolve_hint_item_ids(
     workspace_id: int,
     hint_item_ids: list[int] | None,
 ) -> list[int]:
+    """Оставляет только те `hint_item_ids`, которые реально есть в workspace."""
     if not hint_item_ids:
         return []
     stmt = select(Item.id).where(
@@ -118,11 +123,12 @@ async def _resolve_hint_item_ids(
 
 
 async def analyze_media(media_id: int, db: AsyncSession, hint_item_ids: list[int] | None = None) -> AIDetection:
+    """Анализирует одно изображение и создаёт запись `AIDetection`."""
     media = await db.get(Media, media_id)
     if not media:
         raise ValueError("Media not found")
 
-    # Resolve path
+    # Работаем уже с файлом, который был ранее сохранён upload-эндпоинтом.
     media_path = _resolve_media_path(media.path)
     if not media_path.exists():
         raise FileNotFoundError(f"Media file not found: {media_path}")
@@ -143,11 +149,14 @@ async def analyze_media(media_id: int, db: AsyncSession, hint_item_ids: list[int
 
         detections = detect_objects(image_np)
         if not detections:
+            # Даже если модель ничего не нашла, создаём общий bbox.
+            # Так пользователь видит, что анализ состоялся, а не "пропал".
             w, h = image.size
             detections = [DetectedObject((0, 0, w, h), "object", 0.5)]
 
         hash_candidates: dict[int, float] = {}
         if media.file_hash:
+            # Совпадение по хэшу — самый дешёвый сигнал для повторных загрузок.
             stmt = (
                 select(Item.id)
                 .join(ItemMedia, ItemMedia.item_id == Item.id)
@@ -196,6 +205,7 @@ async def analyze_media(media_id: int, db: AsyncSession, hint_item_ids: list[int
                 candidate_scores[item_id] = max(candidate_scores.get(item_id, 0.0), HINT_CANDIDATE_SCORE)
             if embedding_list is not None:
                 if item_embeddings is None:
+                    # Базу эмбеддингов подгружаем лениво, только если CLIP реально сработал.
                     try:
                         item_embeddings = await _load_item_media_embeddings(
                             db,
@@ -227,6 +237,7 @@ async def analyze_media(media_id: int, db: AsyncSession, hint_item_ids: list[int
         detection_row.status = AIDetectionStatus.DONE
         detection_row.completed_at = func.now()
     except Exception as exc:  # noqa: BLE001
+        # Ошибку тоже сохраняем в raw, чтобы её было видно в истории и логах.
         detection_row.status = AIDetectionStatus.FAILED
         detection_row.raw = {**(detection_row.raw or {}), "error": str(exc)}
         detection_row.completed_at = func.now()

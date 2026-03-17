@@ -1,3 +1,9 @@
+"""Маршруты для загрузки и выдачи медиа.
+
+Этот файл отвечает не только за upload, но и за побочные задачи вокруг него:
+нормализацию путей, генерацию превью, запуск анализа и запись истории загрузки.
+"""
+
 import hashlib
 import logging
 import os
@@ -29,12 +35,14 @@ SANITIZE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def _sanitize_segment(segment: str, fallback: str) -> str:
+    """Очищает кусок пути, чтобы не получить опасные директории и имена."""
     cleaned = SANITIZE_RE.sub("_", segment.strip())
     cleaned = cleaned.lstrip(".").strip("_")
     return cleaned or fallback
 
 
 def _ensure_extension(filename: str, mime: str | None, media_type: str) -> str:
+    """Добавляет расширение, если клиент прислал имя файла без него."""
     name = os.path.basename(filename)
     if "." in name:
         return name
@@ -50,6 +58,7 @@ def _ensure_extension(filename: str, mime: str | None, media_type: str) -> str:
 
 
 async def _write_file(target_path: Path, file: UploadFile, max_bytes: int) -> tuple[int, str]:
+    """Пишет файл на диск потоково и параллельно считает SHA-256."""
     sha = hashlib.sha256()
     total = 0
     async with aiofiles.open(target_path, "wb") as out:
@@ -90,6 +99,7 @@ def _make_video_thumb(src: Path, dest: Path) -> None:
 
 
 async def _latest_detection(db: AsyncSession, media_id: int) -> tuple[AIDetection | None, list[AIDetectionObject]]:
+    """Возвращает последнюю детекцию по медиа вместе с объектами и кандидатами."""
     det_stmt = (
         select(AIDetection)
         .where(AIDetection.media_id == media_id)
@@ -166,6 +176,7 @@ async def _create_upload_log(
     source: str | None,
     location_id: int | None,
 ) -> MediaUploadHistory:
+    """Создаёт запись истории сразу в статусе `in_progress`."""
     entry = MediaUploadHistory(
         workspace_id=workspace_id,
         owner_user_id=owner_user_id,
@@ -195,6 +206,7 @@ async def _mark_upload_failed(db: AsyncSession, entry: MediaUploadHistory | None
 
 
 def _validate_mime(mime: str | None, media_type: MediaType) -> str:
+    """Проверяет mime и мягко исправляет частый кейс mobile capture."""
     mime_lower = (mime or "").lower()
     if mime_lower and mime_lower not in [m.lower() for m in settings.media_allowed_mimes]:
         raise HTTPException(status_code=400, detail=f"Unsupported mime type: {mime_lower}")
@@ -206,6 +218,7 @@ def _validate_mime(mime: str | None, media_type: MediaType) -> str:
 
 
 def _parse_hint_item_ids(value: str | None) -> list[int]:
+    """Разбирает список `hint_item_ids` из form-data в список чисел."""
     if not value:
         return []
     parts = [p.strip() for p in value.replace(";", ",").split(",")]
@@ -221,6 +234,7 @@ def _parse_hint_item_ids(value: str | None) -> list[int]:
 
 
 def _validate_video_params(frame_stride: int | None, max_frames: int | None) -> tuple[int | None, int | None]:
+    """Проверяет параметры выборки кадров для видео-анализа."""
     if frame_stride is not None and frame_stride <= 0:
         raise HTTPException(status_code=400, detail="video_frame_stride must be positive")
     if max_frames is not None and max_frames <= 0:
@@ -247,6 +261,15 @@ async def upload_media(
     video_max_frames: int | None = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
+    """Основной upload-эндпоинт.
+
+    Последовательность такая:
+    1. создаём запись истории загрузки;
+    2. валидируем mime и готовим безопасный путь;
+    3. сохраняем файл и превью;
+    4. создаём запись Media и привязки;
+    5. запускаем анализ и синхронизируем историю.
+    """
     try:
         media_type_enum = MediaType(media_type)
     except Exception:
@@ -257,6 +280,8 @@ async def upload_media(
             db, workspace_id, owner_user_id, media_type_enum, source, location_id
         )
         mime_lower = _validate_mime(mime_type or file.content_type, media_type_enum)
+        # Физическая структура хранения зависит от scope и владельца:
+        # так проще разносить private/public и не смешивать загрузки.
         base = Path(settings.media_public_path if scope == "public" else settings.media_private_path)
         safe_workspace = _sanitize_segment(str(workspace_id), "workspace")
         safe_owner = _sanitize_segment(str(owner_user_id), "user")
@@ -280,6 +305,8 @@ async def upload_media(
 
         thumb_rel_path: str | None = None
         if media_type_enum in (MediaType.PHOTO, MediaType.VIDEO):
+            # Превью не критично для upload: если оно не собралось,
+            # сам файл всё равно считаем успешно загруженным.
             thumb_dir = base / "thumbs" / safe_workspace / safe_owner / target_group / target_dir.name
             thumb_name = f"{target_path.stem}.jpg"
             thumb_path = thumb_dir / thumb_name
@@ -322,6 +349,8 @@ async def upload_media(
         analysis_status: dict | None = None
         if analyze:
             try:
+                # Видео идёт через отдельный пайплайн с семплированием кадров,
+                # фото и одиночные изображения — через обычный analyze_media.
                 if media_type_enum == MediaType.VIDEO:
                     video_frame_stride, video_max_frames = _validate_video_params(
                         video_frame_stride, video_max_frames
@@ -354,6 +383,8 @@ async def upload_media(
         upload_log.path = media.path
         upload_log.thumb_path = media.thumb_path or upload_log.thumb_path
         upload_log.status = UploadStatus.SUCCESS
+        # История загрузки нужна mobile-клиенту как быстрый read-model:
+        # он может показать статус AI без дополнительного похода по связанным таблицам.
         ai_status_value = (analysis_status or {}).get("status") or (det.status if det else None)
         if hasattr(ai_status_value, "value"):
             ai_status_value = ai_status_value.value
@@ -416,6 +447,7 @@ async def upload_history(
     location_id: int | None = None,
     db: AsyncSession = Depends(get_db),
 ):
+    """Возвращает журнал загрузок в удобном для mobile виде."""
     logger.info("media.history.list owner=%s limit=%s", owner_user_id, limit)
     stmt = select(MediaUploadHistory).order_by(MediaUploadHistory.created_at.desc()).limit(limit)
     if owner_user_id:
@@ -465,6 +497,7 @@ async def upload_history(
 
 @router.get("/recent")
 async def recent_media(scope: str = "public", limit: int = 20, db: AsyncSession = Depends(get_db)):
+    """Список последних медиа для быстрых превью и отладки."""
     stmt = (
         select(Media)
         .order_by(Media.id.desc())
@@ -488,6 +521,7 @@ async def get_media_file(
     thumb: int | None = None,
     db: AsyncSession = Depends(get_db),
 ):
+    """Отдаёт оригинал или превью по id медиа."""
     media = await db.get(Media, media_id)
     if not media:
         raise HTTPException(status_code=404, detail="Media not found")
@@ -505,6 +539,7 @@ async def get_media_file(
 
 @router.get("/{media_id}")
 async def get_media(media_id: int, db: AsyncSession = Depends(get_db)):
+    """Карточка одного медиа вместе с последним анализом."""
     media = await db.get(Media, media_id)
     if not media:
         raise HTTPException(status_code=404, detail="Media not found")

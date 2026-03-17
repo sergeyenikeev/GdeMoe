@@ -54,6 +54,12 @@ import androidx.documentfile.provider.DocumentFile
 import com.gdemo.ui.screens.search.SearchScreen
 import okio.source
 
+/**
+ * Список экранов и маршрутов приложения.
+ *
+ * Пока навигация компактная и хранится в одном месте, поэтому новый экран
+ * обычно добавляют сюда, а затем подключают в `NavHost`.
+ */
 sealed class Destinations(val route: String, val label: String, val icon: @Composable (() -> Unit)) {
     object Onboarding : Destinations("onboarding", "Onboarding", { Icon(Icons.Default.Add, contentDescription = null) })
     object Items : Destinations("items", "Items", { Icon(Icons.Default.Home, contentDescription = null) })
@@ -64,6 +70,12 @@ sealed class Destinations(val route: String, val label: String, val icon: @Compo
     object ItemDetails : Destinations("item_details", "Details", { Icon(Icons.Default.Home, contentDescription = null) })
 }
 
+/**
+ * Главный граф навигации мобильного клиента.
+ *
+ * Дополнительно здесь живёт обработка share-intent, потому что после импорта
+ * нужно сразу открыть созданную карточку и перекинуть пользователя в нужный экран.
+ */
 @Composable
 fun GdeNavHost(isOnboarded: Boolean, onFinishOnboarding: () -> Unit, sharedContent: SharedContent? = null) {
     val context = LocalContext.current
@@ -77,6 +89,8 @@ fun GdeNavHost(isOnboarded: Boolean, onFinishOnboarding: () -> Unit, sharedConte
                 val api = ApiClient.create(ApiClient.sanitizeBaseUrl(stored.baseUrl))
                 AnalyticsLogger.event("share_received", mapOf("type" to sharedContent.mimeType, "url" to sharedContent.url))
                 if (!sharedContent.url.isNullOrBlank()) {
+                    // URL-сценарий: пробуем вытащить метаданные товара,
+                    // создаём item и при возможности подтягиваем картинки.
                     val sharedUrl = sharedContent.url
                     val imported = runCatching {
                         api.importProductLink(ProductImportRequest(url = sharedUrl, source = "mobile_share"))
@@ -111,6 +125,7 @@ fun GdeNavHost(isOnboarded: Boolean, onFinishOnboarding: () -> Unit, sharedConte
                     }
                     AnalyticsLogger.event("share_import_success", mapOf("itemId" to created.id))
                 } else if (!sharedContent.fileUri.isNullOrBlank()) {
+                    // Файл-сценарий: сейчас это в первую очередь импорт чека.
                     val receiptItemId = handleReceiptShare(
                         api = api,
                         scope = stored.scope,
@@ -212,7 +227,8 @@ fun GdeNavHost(isOnboarded: Boolean, onFinishOnboarding: () -> Unit, sharedConte
                 AnalyticsLogger.screen("settings")
                 SettingsScreen(padding)
             }
-            // optional search entry point (not on bottom bar)
+            // Поиск оставлен отдельным route, чтобы можно было открывать его
+            // из внутренних сценариев без отдельной кнопки в нижней панели.
             composable("search") {
                 AnalyticsLogger.screen("search")
                 SearchScreen(padding) { id ->
@@ -238,6 +254,8 @@ private suspend fun attachImageFromUrl(
     itemId: Int,
     imageUrl: String
 ) {
+    // Используется после импорта товара по ссылке:
+    // скачиваем картинку и тут же отправляем её в обычный backend upload.
     withContext(Dispatchers.IO) {
         runCatching {
             val client = OkHttpClient.Builder().build()
@@ -279,6 +297,9 @@ private suspend fun handleReceiptShare(
     context: Context
 ): Int? = withContext(Dispatchers.IO) {
     try {
+        // Импорт чека делает две вещи:
+        // 1) отправляет файл на backend для распознавания;
+        // 2) создаёт item из извлечённых данных.
         val contentUri = uri.toUri()
         val doc = DocumentFile.fromSingleUri(context, contentUri)
         val name = doc?.name ?: "receipt"

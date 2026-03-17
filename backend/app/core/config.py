@@ -1,3 +1,9 @@
+"""Централизованные настройки backend.
+
+Это основной файл, который стоит открыть, если нужно понять,
+откуда берутся пути к медиа, настройки БД и параметры AI.
+"""
+
 from typing import List
 
 from pydantic import computed_field
@@ -5,6 +11,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Набор runtime-настроек backend-приложения."""
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     project_name: str = "GdeMoe API"
@@ -41,6 +49,7 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def database_url(self) -> str:
+        """Собирает DSN для async SQLAlchemy из env-переменных."""
         return (
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"

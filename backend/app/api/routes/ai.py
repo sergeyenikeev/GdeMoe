@@ -1,3 +1,9 @@
+"""Маршруты для AI-review и запуска анализа.
+
+Сами вычисления живут в `app.services.ai.*`, а этот слой отвечает за HTTP-
+контракт, обновление статусов и синхронизацию с журналом загрузок.
+"""
+
 import httpx
 import logging
 from datetime import datetime
@@ -34,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _ensure_exists(db: AsyncSession, model, obj_id: int | None, label: str) -> None:
+    """Проверяет существование связанных сущностей до записи решения review."""
     if obj_id is None:
         return
     stmt = select(model.id).where(model.id == obj_id)
@@ -43,13 +50,16 @@ async def _ensure_exists(db: AsyncSession, model, obj_id: int | None, label: str
 
 
 async def _resolve_review_user_id(db: AsyncSession, detection: AIDetection) -> int | None:
+    """Берёт владельца медиа как пользователя, принявшего решение по review."""
     result = await db.execute(select(Media.owner_user_id).where(Media.id == detection.media_id))
     return result.scalar_one_or_none()
 
 
 @router.post("/analyze")
 async def request_analysis(payload: AITaskRequest, db: AsyncSession = Depends(get_db)):
-    # If external AI service configured, enqueue there
+    """Запускает анализ изображения локально или через внешний AI-сервис."""
+    # Если настроен внешний сервис, backend выступает как оркестратор:
+    # создаёт запись детекции и отправляет задачу наружу.
     if settings.ai_service_url:
         detection = AIDetection(media_id=payload.media_id, status=AIDetectionStatusEnum.PENDING)
         db.add(detection)
@@ -72,7 +82,7 @@ async def request_analysis(payload: AITaskRequest, db: AsyncSession = Depends(ge
         return loaded
 
     logger.info("ai.analyze.start media_id=%s hint_items=%s", payload.media_id, payload.hint_item_ids)
-    # Local pipeline (YOLO + CLIP)
+    # Локальный режим нужен для автономной работы без внешнего AI-сервиса.
     try:
         detection = await analyze_media(payload.media_id, db, hint_item_ids=payload.hint_item_ids)
     except ImportError as exc:
@@ -83,13 +93,13 @@ async def request_analysis(payload: AITaskRequest, db: AsyncSession = Depends(ge
         ) from exc
 
     await _update_upload_history(db, detection)
-    # Reload with objects eager-loaded to avoid async lazy-load issues
+    # Перечитываем запись с eager loading, чтобы не ловить async lazy-load в сериализации.
     return await _load_detection(db, detection.id)
 
 
 @router.post("/analyze_video")
 async def request_video_analysis(payload: AITaskRequest, db: AsyncSession = Depends(get_db)):
-    # Samples frames and runs image pipeline
+    """Запускает анализ видео через выборку кадров."""
     detection_ids = await analyze_video(payload.media_id, db, hint_item_ids=payload.hint_item_ids)
     if detection_ids:
         latest = await db.get(AIDetection, detection_ids[-1])
@@ -103,6 +113,7 @@ async def list_detections(
     status: AIDetectionStatusEnum = AIDetectionStatusEnum.PENDING,
     db: AsyncSession = Depends(get_db),
 ):
+    """Возвращает очередь AI-детекций по статусу."""
     logger.info("ai.detections.list status=%s", status)
     result = await db.execute(
         select(AIDetection)
@@ -134,6 +145,7 @@ async def list_detections(
 async def accept_detection(
     detection_id: int, body: AIDetectionActionRequest, db: AsyncSession = Depends(get_db)
 ):
+    """Подтверждает детекцию и при необходимости привязывает item/location."""
     logger.info("ai.detection.accept id=%s item_id=%s location_id=%s", detection_id, body.item_id, body.location_id)
     detection = await db.get(AIDetection, detection_id)
     if detection is None:
@@ -171,6 +183,7 @@ async def accept_detection(
 async def reject_detection(
     detection_id: int, body: AIDetectionActionRequest | None = None, db: AsyncSession = Depends(get_db)
 ):
+    """Отклоняет детекцию и сохраняет решение в журнал review."""
     logger.info("ai.detection.reject id=%s item_id=%s location_id=%s", detection_id, body.item_id if body else None, body.location_id if body else None)
     detection = await db.get(AIDetection, detection_id)
     if detection is None:
@@ -209,6 +222,7 @@ async def reject_detection(
 async def add_review_log(
     detection_id: int, body: AIDetectionReviewRequest, db: AsyncSession = Depends(get_db)
 ):
+    """Пишет произвольное действие review в аудит-лог."""
     logger.info("ai.detection.review_log id=%s action=%s", detection_id, body.action)
     detection = await db.get(AIDetection, detection_id)
     if detection is None:
@@ -232,6 +246,7 @@ async def update_detection_object(
     body: AIDetectionObjectUpdate,
     db: AsyncSession = Depends(get_db),
 ):
+    """Позволяет точечно поправить один объект детекции без пересоздания всей записи."""
     logger.info(
         "ai.detection.object.update id=%s item_id=%s location_id=%s decision=%s",
         object_id,
@@ -260,6 +275,7 @@ async def update_detection_object(
 
 
 async def _load_detection(db: AsyncSession, detection_id: int) -> AIDetectionOut:
+    """Загружает детекцию вместе с медиа и кандидатами для ответа API."""
     result = await db.execute(
         select(AIDetection)
         .where(AIDetection.id == detection_id)
@@ -296,6 +312,7 @@ def _object_out(obj: AIDetectionObject) -> AIDetectionObjectOut:
 
 
 async def _update_upload_history(db: AsyncSession, detection: AIDetection) -> None:
+    """Синхронизирует `MediaUploadHistory` с актуальным состоянием AI."""
     loaded = await db.execute(
         select(AIDetection)
         .where(AIDetection.id == detection.id)

@@ -16,6 +16,12 @@ import com.gdemo.ui.navigation.GdeNavHost
 import com.gdemo.ui.theme.GdeMoeTheme
 import com.gdemo.util.AnalyticsLogger
 
+/**
+ * Главная activity мобильного клиента.
+ *
+ * Помимо обычного запуска она принимает внешние share-intent:
+ * ссылку можно превратить в новую карточку товара, а файл — в импорт чека.
+ */
 class MainActivity : ComponentActivity() {
     private var sharedContent: SharedContent? = null
 
@@ -35,6 +41,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun extractSharedContent(intent: Intent?): SharedContent? {
+        // Поддерживаем два сценария шаринга:
+        // 1) текст/ссылка из браузера или магазина;
+        // 2) файл, который потом можно отдать на импорт.
         if (intent?.action == Intent.ACTION_SEND) {
             val type = intent.type
             if (type == "text/plain") {
@@ -65,6 +74,8 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun GdeMoeApp(sharedContent: SharedContent? = null) {
+    // Если приложение открыли через "Поделиться", сразу ведём пользователя
+    // в рабочий сценарий и не тормозим его онбордингом.
     var isOnboarded by remember { mutableStateOf(sharedContent != null) }
     GdeMoeTheme {
         Surface {

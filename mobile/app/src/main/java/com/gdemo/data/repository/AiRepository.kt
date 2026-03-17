@@ -8,6 +8,12 @@ import com.gdemo.data.model.UploadHistoryEntryDto
 import com.gdemo.data.model.AiDetectionObjectDto
 import com.gdemo.data.model.AiDetectionObjectUpdateRequest
 
+/**
+ * Небольшая обёртка над AI-эндпоинтами backend.
+ *
+ * Здесь почти нет бизнес-логики: задача репозитория — дать ViewModel
+ * читаемые методы вместо прямой работы с Retrofit.
+ */
 class AiRepository(private val api: ApiService) {
     suspend fun pending(): List<AiDetectionDto> = api.aiDetections()
 

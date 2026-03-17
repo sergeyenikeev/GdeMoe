@@ -1,3 +1,9 @@
+"""Упрощённый AI-пайплайн для видео.
+
+Видео не анализируется целиком: мы берём только часть кадров с шагом `stride`,
+чтобы backend мог работать даже на слабом железе или NAS без GPU.
+"""
+
 import logging
 import math
 from pathlib import Path
@@ -19,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def _expected_frame_total(total_frames: int, stride: int, limit: int) -> int:
+    """Оценивает, сколько кадров реально будет обработано."""
     if total_frames <= 0:
         return limit
     return min(limit, max(1, math.ceil(total_frames / max(1, stride))))
@@ -31,9 +38,10 @@ async def analyze_video(
     max_frames: int | None = None,
     hint_item_ids: list[int] | None = None,
 ) -> List[int]:
-    """
-    Analyze video by sampling frames; creates detections linked to the original media_id.
-    Uses lightweight sampling to avoid long runtimes on CPU-only NAS.
+    """Анализирует видео через выборку кадров.
+
+    На выходе получаем несколько `AIDetection`, связанных с одним media_id.
+    Это позволяет хранить прогресс по кадрам и не ждать полного разбора ролика.
     """
     try:
         import cv2  # noqa: WPS433
@@ -82,6 +90,8 @@ async def analyze_video(
         ok, frame = cap.read()
         while ok and processed_frames < limit:
             if frame_idx % stride == 0:
+                # Кадр временно кладём на диск, чтобы переиспользовать
+                # обычный image-flow без отдельной ветки сериализации.
                 tmp_path = base_path / "tmp_frames"
                 tmp_path.mkdir(parents=True, exist_ok=True)
                 frame_file = tmp_path / f"frame_{media_id}_{frame_idx}.jpg"
@@ -137,6 +147,7 @@ async def _create_detection_from_frame(
     media_location_id: int | None,
     hint_item_ids: list[int] | None,
 ) -> AIDetection:
+    """Создаёт детекцию по одному кадру видео."""
     import cv2  # noqa: WPS433
 
     with frame_path.open("rb") as f:
@@ -183,7 +194,8 @@ async def _create_detection_from_frame(
         )
         db.add(det_obj)
 
-        # Create candidate suggestions based on location (best-effort)
+        # Для видео используем лёгкую эвристику:
+        # сначала предметы из той же локации, потом явные hint_item_ids.
         if media_location_id:
             stmt = (
                 select(Item.id)

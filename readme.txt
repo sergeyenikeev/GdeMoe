@@ -26,6 +26,7 @@ GdeMoe
 Документация:
 - Сборка и локальный запуск: `docs/build_and_run.md`
 - Архитектура: `docs/architecture.md`
+- Руководство по разработке: `docs/development_guide.md`
 - Модель данных: `docs/data_model.md`
 - Описание продукта: `docs/project_description.md`
 - Интеграция распознавания: `docs/ai_integration.md`

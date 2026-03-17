@@ -1,3 +1,9 @@
+"""Точка входа backend-приложения.
+
+Здесь поднимается FastAPI, подключаются маршруты и выполняются простые
+проверки окружения, которые полезны при старте сервиса.
+"""
+
 import logging
 from pathlib import Path
 
@@ -14,6 +20,7 @@ logger = logging.getLogger("uvicorn.error")
 
 
 def _resolve_yolo_weights_path() -> tuple[Path, str]:
+    """Возвращает путь к весам YOLO и источник этого пути."""
     if settings.ai_yolo_weights_path:
         weights_path = Path(settings.ai_yolo_weights_path)
         if not weights_path.is_absolute():
@@ -24,6 +31,7 @@ def _resolve_yolo_weights_path() -> tuple[Path, str]:
 
 @app.on_event("startup")
 async def log_ai_weights() -> None:
+    """Логирует, где backend ищет веса для локального AI-пайплайна."""
     weights_path, source = _resolve_yolo_weights_path()
     logger.info(
         "ai.weights source=%s path=%s exists=%s",

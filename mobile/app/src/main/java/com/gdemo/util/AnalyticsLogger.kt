@@ -15,6 +15,12 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
+/**
+ * Простое клиентское логирование.
+ *
+ * Логи пишутся в Logcat и по возможности отправляются на backend, чтобы
+ * разбирать пользовательские сценарии без отдельной аналитической платформы.
+ */
 object AnalyticsLogger {
     private const val TAG = "GdeMoe"
     private var appContext: Context? = null
@@ -44,6 +50,8 @@ object AnalyticsLogger {
         val ctx = appContext ?: return
         scope.launch {
             runCatching {
+                // Используем те же настройки подключения, что и весь остальной клиент,
+                // чтобы логи уходили в тот же backend, с которым сейчас работает приложение.
                 val settings = ctx.loadConnection()
                 val base = ApiClient.sanitizeBaseUrl(settings.baseUrl).trimEnd('/')
                 val json = JSONObject()

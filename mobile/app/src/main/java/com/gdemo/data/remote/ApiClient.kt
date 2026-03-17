@@ -8,9 +8,16 @@ import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.util.concurrent.TimeUnit
 
+/**
+ * Фабрика Retrofit-клиента.
+ *
+ * Здесь удобно менять базовые таймауты, сетевое логирование и общую сборку API.
+ */
 object ApiClient {
 
     fun sanitizeBaseUrl(raw: String): String {
+        // Пользователь может ввести адрес без схемы и завершающего `/`.
+        // Нормализуем его один раз, чтобы не повторять это по всему UI.
         val trimmed = raw.trim()
         val withScheme = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
             trimmed
