@@ -74,6 +74,7 @@ async def _write_file(target_path: Path, file: UploadFile, max_bytes: int) -> tu
 
 
 def _make_image_thumb(src: Path, dest: Path) -> None:
+    """Генерирует JPEG-превью для фото с максимальным размером 512×512."""
     from PIL import Image
 
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -83,6 +84,7 @@ def _make_image_thumb(src: Path, dest: Path) -> None:
 
 
 def _make_video_thumb(src: Path, dest: Path) -> None:
+    """Сохраняет первый кадр видео как миниатюру (требуется OpenCV)."""
     try:
         import cv2  # noqa: WPS433
     except ImportError:
@@ -119,6 +121,7 @@ async def _latest_detection(db: AsyncSession, media_id: int) -> tuple[AIDetectio
 
 
 def _serialize_detection(det: AIDetection | None, objects: Iterable[AIDetectionObject]) -> dict | None:
+    """Формирует структуру анализа медиа для отдачи клиенту."""
     if not det:
         return None
     hint_items = None
@@ -137,6 +140,7 @@ def _serialize_detection(det: AIDetection | None, objects: Iterable[AIDetectionO
 
 
 def _serialize_media(m: Media, det: AIDetection | None, objects: Iterable[AIDetectionObject]) -> dict:
+    """Собирает словарь метаданных медиа с привязкой к последней детекции."""
     scope_prefix = "private/" if m.path.startswith("private/") else ""
     return {
         "id": m.id,
@@ -152,6 +156,7 @@ def _serialize_media(m: Media, det: AIDetection | None, objects: Iterable[AIDete
 
 
 def _serialize_detection_object(obj: AIDetectionObject) -> dict:
+    """Составляет подробную информацию по объекту детекции с кандидатами."""
     return {
         "id": obj.id,
         "label": obj.label,
