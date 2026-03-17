@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">ГдеМоё</string>
+    <string name="slogan">ГдеМоё — приложение, которое помнит за вас.</string>
+
+    <string name="onboarding_title">Привет! Я — ГдеМоё.</string>
+    <string name="onboarding_subtitle">Сфотографируйте шкаф или ящик — я помогу вспомнить, что внутри, и сохраню карточки вещей.</string>
+    <string name="cta_start">Начать</string>
+    <string name="cta_skip">Пропустить</string>
+
+    <string name="tab_items">Вещи</string>
+    <string name="tab_locations">Места</string>
+    <string name="tab_search">Поиск</string>
+    <string name="tab_review">Надо проверить</string>
+    <string name="tab_settings">Настройки</string>
+    <string name="empty_items">Пока пусто. Добавьте первую карточку или загрузите фото — я подскажу, что нашли.</string>
+</resources>
