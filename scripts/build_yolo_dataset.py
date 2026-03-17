@@ -40,14 +40,18 @@ def _safe_float(value: str) -> float:
     CSV-файлов с потенциально повреждёнными данными.
 
     Args:
-        value: Строка для преобразования.
+        value (str): Строка для преобразования.
 
     Returns:
-        Число с плавающей точкой или 0.0 в случае ошибки.
+        float: Число с плавающей точкой или 0.0 в случае ошибки.
+
+    Raises:
+        Нет исключений - всегда возвращает значение.
     """
     try:
         return float(value)
     except Exception:
+        return 0.0
         return 0.0
 
 
@@ -59,10 +63,14 @@ def _load_manifest(path: Path) -> List[dict]:
     Возвращает список словарей для дальнейшей обработки.
 
     Args:
-        path: Путь к manifest CSV-файлу.
+        path (Path): Путь к manifest CSV-файлу.
 
     Returns:
-        Список словарей с данными из CSV.
+        List[dict]: Список словарей с данными из CSV.
+
+    Raises:
+        FileNotFoundError: Если файл не найден.
+        UnicodeDecodeError: При проблемах с кодировкой.
     """
     rows: List[dict] = []
     with path.open("r", encoding="utf-8", newline="") as f:
@@ -79,7 +87,13 @@ def _ensure_dir(path: Path) -> None:
     Используется для подготовки структуры папок перед копированием файлов.
 
     Args:
-        path: Путь к директории для создания.
+        path (Path): Путь к директории для создания.
+
+    Returns:
+        None
+
+    Raises:
+        OSError: При проблемах с созданием директорий (права доступа и т.д.).
     """
     path.mkdir(parents=True, exist_ok=True)
 
@@ -93,9 +107,15 @@ def _link_or_copy(src: Path, dst: Path, mode: str) -> None:
     ничего не делает.
 
     Args:
-        src: Путь к исходному файлу.
-        dst: Путь к файлу назначения.
-        mode: Режим ('link' для hardlink, иначе копирование).
+        src (Path): Путь к исходному файлу.
+        dst (Path): Путь к файлу назначения.
+        mode (str): Режим ('link' для hardlink, иначе копирование).
+
+    Returns:
+        None
+
+    Raises:
+        OSError: При проблемах с копированием или созданием hardlink.
     """
     if dst.exists():
         return
@@ -117,11 +137,14 @@ def _image_root_for(row: dict, paths: dict) -> Path | None:
     COCO, RPC, SKU110k, Grozi.
 
     Args:
-        row: Словарь с данными строки manifest.
-        paths: Словарь с путями к директориям изображений.
+        row (dict): Словарь с данными строки manifest.
+        paths (dict): Словарь с путями к директориям изображений.
 
     Returns:
-        Путь к корневой директории изображений или None, если dataset неизвестен.
+        Path | None: Путь к корневой директории изображений или None, если dataset неизвестен.
+
+    Raises:
+        Нет исключений.
     """
     dataset = row["dataset"]
     split = row["split"]
@@ -145,11 +168,14 @@ def _group_rows(rows: Iterable[dict]) -> Dict[Tuple[str, str, str, str], List[di
     все bbox для одного изображения перед записью YOLO label-файла.
 
     Args:
-        rows: Итератор по строкам manifest.
+        rows (Iterable[dict]): Итератор по строкам manifest.
 
     Returns:
-        Словарь, где ключ - кортеж (dataset, split, image_id, file_name),
+        Dict[Tuple[str, str, str, str], List[dict]]: Словарь, где ключ - кортеж (dataset, split, image_id, file_name),
         значение - список строк для этого изображения.
+
+    Raises:
+        Нет исключений.
     """
     grouped: Dict[Tuple[str, str, str, str], List[dict]] = {}
     for row in rows:
@@ -170,9 +196,15 @@ def _write_labels(
     Пропускает классы, не входящие в список classes.
 
     Args:
-        label_path: Путь к выходному label-файлу (.txt).
-        rows: Список строк manifest для одного изображения.
-        class_to_idx: Словарь соответствия названий классов их индексам.
+        label_path (Path): Путь к выходному label-файлу (.txt).
+        rows (List[dict]): Список строк manifest для одного изображения.
+        class_to_idx (Dict[str, int]): Словарь соответствия названий классов их индексам.
+
+    Returns:
+        None
+
+    Raises:
+        OSError: При проблемах с записью файла.
     """
     lines: List[str] = []
     for row in rows:
@@ -214,15 +246,29 @@ def build_dataset(
     копирует или линкует изображения в соответствующие папки, записывает
     label-файлы в формате YOLO и создаёт dataset.yaml для Ultralytics.
 
+    Структура выходной директории:
+    - images/train/ - тренировочные изображения
+    - images/val/ - валидационные изображения
+    - labels/train/ - тренировочные аннотации (.txt)
+    - labels/val/ - валидационные аннотации (.txt)
+    - dataset.yaml - конфигурация датасета
+
     Args:
-        train_manifest: Путь к manifest для тренировочных данных.
-        val_manifest: Путь к manifest для валидационных данных.
-        out_dir: Выходная директория для датасета.
-        paths: Словарь путей к исходным изображениям по датасетам.
-        classes: Список названий классов.
-        mode: Режим копирования ('link' или 'copy').
-        max_images_per_dataset: Максимум изображений на датасет (опционально).
-        seed: Seed для случайности.
+        train_manifest (Path): Путь к manifest для тренировочных данных.
+        val_manifest (Path): Путь к manifest для валидационных данных.
+        out_dir (Path): Выходная директория для датасета.
+        paths (dict): Словарь путей к исходным изображениям по датасетам.
+        classes (List[str]): Список названий классов.
+        mode (str): Режим копирования ('link' для hardlink, 'copy' для копирования).
+        max_images_per_dataset (int | None): Максимум изображений на датасет (опционально).
+        seed (int): Seed для случайности при лимитировании изображений.
+
+    Returns:
+        None
+
+    Raises:
+        FileNotFoundError: Если manifest-файлы не найдены.
+        OSError: При проблемах с созданием директорий или копированием файлов.
     """
     out_images_train = out_dir / "images" / "train"
     out_images_val = out_dir / "images" / "val"
@@ -287,6 +333,27 @@ def main() -> None:
 
     Парсит аргументы командной строки, подготавливает пути и классы,
     затем вызывает build_dataset для создания датасета.
+
+    Аргументы командной строки:
+    - --train-manifest: Путь к тренировочному manifest (CSV).
+    - --val-manifest: Путь к валидационному manifest (CSV).
+    - --out-dir: Выходная директория для датасета.
+    - --coco-train-images: Путь к тренировочным изображениям COCO.
+    - --coco-val-images: Путь к валидационным изображениям COCO.
+    - --rpc-train-images: Путь к тренировочным изображениям RPC.
+    - --rpc-val-images: Путь к валидационным изображениям RPC.
+    - --sku-images: Путь к изображениям SKU110k.
+    - --grozi-images: Путь к изображениям GroZi.
+    - --classes: Список классов через запятую (по умолчанию: item,box,shelf,closet,bag,hand,document,table).
+    - --mode: Режим копирования ('link' для hardlink, 'copy' для копирования, по умолчанию 'link').
+    - --max-images-per-dataset: Максимум изображений на датасет (опционально).
+    - --seed: Seed для случайности (по умолчанию 42).
+
+    Returns:
+        None
+
+    Raises:
+        SystemExit: При ошибках парсинга аргументов или выполнения.
     """
     parser = argparse.ArgumentParser(description="Build YOLO dataset from manifests.")
     parser.add_argument("--train-manifest", type=Path, required=True)

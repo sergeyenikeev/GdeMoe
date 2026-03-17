@@ -12,14 +12,19 @@ def create_access_token(subject: str | int, expires_delta: timedelta | None = No
     """Создаёт JWT access token для пользователя или другого субъекта.
 
     Генерирует подписанный JWT-токен с указанным subject (обычно ID пользователя)
-    и временем истечения. Использует настройки из config для ключа и алгоритма.
+    и временем истечения. Токен содержит claims: 'exp' (expiration time) и 'sub' (subject).
+    Использует секретный ключ и алгоритм из настроек приложения.
 
     Args:
-        subject: Идентификатор субъекта (например, user ID).
-        expires_delta: Время жизни токена (по умолчанию из настроек).
+        subject (str | int): Идентификатор субъекта токена (например, user ID как строка или число).
+        expires_delta (timedelta | None): Время жизни токена. Если None, используется значение
+            из settings.jwt_access_token_expires_minutes.
 
     Returns:
-        Закодированный JWT-токен в виде строки.
+        str: Закодированный JWT-токен в виде строки, готовый для отправки клиенту.
+
+    Raises:
+        Нет исключений - функция всегда возвращает валидный токен.
     """
     if expires_delta is None:
         expires_delta = timedelta(minutes=settings.jwt_access_token_expires_minutes)

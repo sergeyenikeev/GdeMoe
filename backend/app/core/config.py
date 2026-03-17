@@ -14,7 +14,20 @@ class Settings(BaseSettings):
     """Набор runtime-настроек backend-приложения.
 
     Все настройки загружаются из переменных окружения (.env файла)
-    с fallback на значения по умолчанию. Использует Pydantic для валидации.
+    с fallback на значения по умолчанию. Использует Pydantic для валидации
+    типов и обязательности полей.
+
+    Настройки разделены на группы:
+    - Общие (project_name, api_v1_prefix)
+    - База данных PostgreSQL (postgres_*)
+    - Кэширование (redis_url)
+    - Аутентификация JWT (jwt_*)
+    - Медиафайлы (media_*)
+    - AI и ML (ai_*)
+    - Разработка (debug, cors_origins)
+
+    Для изменения настроек в продакшене используйте переменные окружения
+    или .env файл в корне проекта.
     """
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -90,10 +103,10 @@ class Settings(BaseSettings):
         """Собирает DSN для async SQLAlchemy из env-переменных.
 
         Формирует строку подключения к базе данных на основе настроек PostgreSQL.
-        Используется для создания engine SQLAlchemy.
+        Используется для создания async engine SQLAlchemy с драйвером asyncpg.
 
         Returns:
-            Строка подключения в формате postgresql+asyncpg://...
+            str: Строка подключения в формате postgresql+asyncpg://user:pass@host:port/db
         """
         return (
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"

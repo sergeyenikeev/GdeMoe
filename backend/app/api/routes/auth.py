@@ -20,18 +20,19 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> Token:
     """Аутентифицирует пользователя и возвращает JWT-токен.
 
-    Проверяет предоставленные email и пароль. Если данные корректны,
-    генерирует access-токен с временем жизни 7 дней.
+    Выполняет проверку предоставленных учетных данных (email и пароль).
+    Если пользователь найден и пароль верен, генерирует JWT access-токен
+    с временем жизни 7 дней (10080 минут). Токен содержит user_id в payload.
 
     Args:
-        payload: Данные для входа (email и пароль).
-        db: Асинхронная сессия базы данных.
+        payload (LoginRequest): Данные для входа с полями email и password.
+        db (AsyncSession): Асинхронная сессия базы данных для поиска пользователя.
 
     Returns:
-        Объект Token с access-токеном и временем истечения.
+        Token: Объект с access_token (JWT строка) и expires_at (datetime истечения).
 
     Raises:
-        HTTPException: Если email или пароль неверны.
+        HTTPException (401): Если email не найден или пароль неверен.
     """
     res = await db.execute(select(User).where(User.email == payload.email))
     user = res.scalar_one_or_none()
@@ -47,19 +48,20 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
 async def register(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> Token:
     """Регистрирует нового пользователя и возвращает JWT-токен.
 
-    Создаёт нового пользователя с предоставленным email и паролем.
-    Если пользователь с таким email уже существует, возвращает ошибку.
-    После успешной регистрации сразу выдаёт токен для входа.
+    Создает нового пользователя в системе с предоставленным email и паролем.
+    Пароль хешируется с использованием bcrypt. Проверяет уникальность email.
+    После успешной регистрации автоматически генерирует JWT-токен для входа
+    (с временем жизни по умолчанию из настроек).
 
     Args:
-        payload: Данные для регистрации (email и пароль).
-        db: Асинхронная сессия базы данных.
+        payload (LoginRequest): Данные для регистрации с полями email и password.
+        db (AsyncSession): Асинхронная сессия базы данных для создания пользователя.
 
     Returns:
-        Объект Token с access-токеном.
+        Token: Объект с access_token (JWT строка) для нового пользователя.
 
     Raises:
-        HTTPException: Если пользователь с таким email уже существует.
+        HTTPException (400): Если пользователь с таким email уже существует.
     """
     res = await db.execute(select(User).where(User.email == payload.email))
     if res.scalar_one_or_none():

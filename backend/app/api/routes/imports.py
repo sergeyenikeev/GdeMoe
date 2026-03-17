@@ -23,7 +23,21 @@ router = APIRouter(prefix="/imports", tags=["imports"])
 
 @router.post("/product-link", response_model=ProductImportResponse)
 async def import_product_link(payload: ProductImportRequest):
-    """Пробует вытащить карточку товара с публичной страницы."""
+    """Пробует вытащить карточку товара с публичной страницы.
+
+    Выполняет веб-скрейпинг указанного URL для извлечения информации о товаре:
+    название, цена, описание, изображения. Использует сервис product_fetcher
+    для парсинга популярных платформ (Wildberries, Ozon и т.д.).
+
+    Args:
+        payload (ProductImportRequest): Запрос с URL товара и источником.
+
+    Returns:
+        ProductImportResponse: Извлеченные данные товара с метаданными.
+
+    Raises:
+        HTTPException: Если не удалось извлечь данные со страницы.
+    """
     data = await fetch_public_product(str(payload.url))
     if not data:
         raise HTTPException(status_code=400, detail="Не удалось вытащить данные со страницы товара")
@@ -38,8 +52,24 @@ async def import_receipt(
 ):
     """Сохраняет файл чека и делает упрощённый парсинг текста.
 
-    Это не полноценный OCR-конвейер, а лёгкий best-effort сценарий для PDF и
-    текстовых чеков, чтобы пользователь получил хотя бы черновик данных.
+    Сохраняет загруженный файл чека (PDF или текстовый) на диск и выполняет
+    базовый текстовый парсинг для извлечения данных: магазин, дата, сумма, позиции товаров.
+    Это не полноценный OCR, а легковесный best-effort парсер для структурированных чеков.
+    Пользователь получает черновик данных, который можно скорректировать вручную.
+
+    Для PDF используется pypdf для извлечения текста. Для текстовых файлов парсинг
+    выполняется регулярными выражениями. Поддерживает форматы типа "кассовый чек".
+
+    Args:
+        file (UploadFile): Загруженный файл чека (PDF или текст).
+        workspace_id (int): ID рабочего пространства (по умолчанию 2).
+        scope (str): Область видимости файла ("private" или "public", по умолчанию "private").
+
+    Returns:
+        ReceiptImportResponse: Распарсенные данные чека с ID файла и URL для доступа.
+
+    Raises:
+        Нет исключений - парсинг выполняется best-effort, при ошибках возвращаются пустые данные.
     """
     content = await file.read()
     ext = Path(file.filename or "").suffix.lower() or ".bin"

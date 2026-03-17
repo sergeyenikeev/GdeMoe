@@ -95,19 +95,54 @@ OPENIMAGES_CLASS_MAP: Dict[str, List[str]] = {
 
 
 def _ensure_out_dir(path: Path) -> None:
-    """Создаёт выходную директорию."""
+    """Создаёт выходную директорию с родительскими папками при необходимости.
+
+    Args:
+        path (Path): Путь к директории для создания.
+
+    Returns:
+        None
+
+    Raises:
+        OSError: При проблемах с созданием директории.
+    """
     path.mkdir(parents=True, exist_ok=True)
 
 
 def _require_paths_exist(paths: Iterable[Path], context: str) -> None:
-    """Проверяет, что все обязательные пути действительно существуют."""
+    """Проверяет, что все обязательные пути действительно существуют.
+
+    Args:
+        paths (Iterable[Path]): Итерируемый объект с путями для проверки.
+        context (str): Контекст ошибки для сообщения.
+
+    Returns:
+        None
+
+    Raises:
+        SystemExit: Если хотя бы один путь не существует.
+    """
     missing = [str(p) for p in paths if p and not p.exists()]
     if missing:
         raise SystemExit(f"[error] {context}: missing paths -> {', '.join(missing)}")
 
 
 def _write_manifest(out_path: Path, rows: List[dict]) -> None:
-    """Пишет общий manifest CSV."""
+    """Пишет общий manifest CSV с данными аннотаций.
+
+    Создаёт директорию при необходимости, записывает заголовок и строки
+    в формате CSV с кодировкой UTF-8.
+
+    Args:
+        out_path (Path): Путь к выходному CSV-файлу.
+        rows (List[dict]): Список словарей с данными аннотаций.
+
+    Returns:
+        None
+
+    Raises:
+        OSError: При проблемах с записью файла.
+    """
     _ensure_out_dir(out_path.parent)
     fieldnames = [
         "dataset",
@@ -131,7 +166,22 @@ def _write_manifest(out_path: Path, rows: List[dict]) -> None:
 
 
 def _maybe_copy_image(src_dir: Path, file_name: str, dest_dir: Path) -> None:
-    """При необходимости копирует изображение в выходную папку."""
+    """При необходимости копирует изображение в выходную папку.
+
+    Создаёт родительские директории при необходимости, копирует файл
+    с метаданными (время модификации и т.д.), или предупреждает если файл отсутствует.
+
+    Args:
+        src_dir (Path): Исходная директория с изображениями.
+        file_name (str): Имя файла изображения.
+        dest_dir (Path): Целевая директория для копирования.
+
+    Returns:
+        None
+
+    Raises:
+        OSError: При проблемах с копированием файла.
+    """
     src = src_dir / file_name
     dst = dest_dir / file_name
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -149,7 +199,27 @@ def process_coco(
     limit_per_class: int,
     copy_images: bool,
 ) -> None:
-    """Строит подмножество COCO и приводит его к проектным классам."""
+    """Строит подмножество COCO и приводит его к проектным классам.
+
+    Загружает COCO JSON, фильтрует аннотации по классам, ограничивает
+    количество примеров на класс, преобразует bbox в абсолютные координаты,
+    маппит классы на проектные и записывает manifest. При необходимости копирует изображения.
+
+    Args:
+        annotations_path (Path): Путь к JSON-файлу с аннотациями COCO.
+        images_dir (Path): Директория с изображениями COCO.
+        out_dir (Path): Выходная директория для manifest и изображений.
+        split (str): Тип сплита ('train', 'val' и т.д.).
+        limit_per_class (int): Максимальное количество примеров на класс.
+        copy_images (bool): Копировать ли изображения в выходную директорию.
+
+    Returns:
+        None
+
+    Raises:
+        SystemExit: Если входные файлы не найдены.
+        JSONDecodeError: При ошибках парсинга JSON.
+    """
     _require_paths_exist([annotations_path, images_dir], "COCO input")
     _ensure_out_dir(out_dir)
     data = json.loads(annotations_path.read_text(encoding="utf-8"))

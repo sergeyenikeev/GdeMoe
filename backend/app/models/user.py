@@ -12,8 +12,23 @@ from app.models.enums import Scope
 class User(Base):
     """Пользователь системы.
 
-    Представляет зарегистрированного пользователя приложения.
-    Содержит базовую информацию для аутентификации и профиля.
+    Представляет зарегистрированного пользователя приложения GdeMoe.
+    Содержит информацию для аутентификации (email, хешированный пароль)
+    и базовый профиль (полное имя, статус активности).
+
+    Пользователь может владеть workspaces и быть членом других workspaces через Membership.
+
+    Attributes:
+        id (int): Уникальный идентификатор пользователя.
+        email (str): Email-адрес пользователя, уникальный в системе.
+        hashed_password (str): Хешированный пароль (bcrypt).
+        full_name (str | None): Полное имя пользователя (опционально).
+        is_active (bool): Флаг активности пользователя (по умолчанию True).
+        created_at (datetime): Дата и время создания учетной записи.
+
+    Relationships:
+        workspaces: Workspaces, которыми владеет пользователь.
+        memberships: Членства пользователя в workspaces.
     """
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
@@ -29,8 +44,22 @@ class User(Base):
 class Workspace(Base):
     """Логическое пространство данных пользователя или группы.
 
-    Workspace объединяет предметы, локации и группы в изолированное пространство.
-    Каждый пользователь имеет хотя бы один workspace, но может быть членом нескольких.
+    Workspace представляет изолированное пространство для хранения предметов,
+    локаций и групп. Каждый пользователь имеет личный workspace, но может
+    быть членом других workspaces для совместной работы.
+
+    Attributes:
+        id (int): Уникальный идентификатор workspace.
+        name (str): Название workspace.
+        scope (Scope): Уровень видимости (PRIVATE или PUBLIC).
+        owner_user_id (int): ID владельца workspace.
+        created_at (datetime): Дата и время создания workspace.
+
+    Relationships:
+        owner: Пользователь-владелец workspace.
+        groups: Группы предметов в этом workspace.
+        locations: Локации в этом workspace.
+        items: Предметы в этом workspace.
     """
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)

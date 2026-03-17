@@ -37,7 +37,21 @@ FIELDNAMES = [
 
 
 def write_manifest(out_path: Path, rows: List[dict]) -> None:
-    """Записывает итоговый manifest в CSV."""
+    """Записывает итоговый manifest в CSV-файл.
+
+    Создаёт родительские директории при необходимости, записывает заголовок
+    и все строки в формате CSV с кодировкой UTF-8.
+
+    Args:
+        out_path (Path): Путь к выходному CSV-файлу.
+        rows (List[dict]): Список словарей с данными для записи.
+
+    Returns:
+        None
+
+    Raises:
+        OSError: При проблемах с созданием директорий или записью файла.
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
@@ -55,7 +69,28 @@ def convert_sku110k(
     limit: int | None,
     check_files: bool,
 ) -> None:
-    """Преобразует CSV-аннотации SKU110K в единый manifest."""
+    """Преобразует CSV-аннотации SKU110K в единый manifest.
+
+    Читает CSV с аннотациями SKU110K, нормализует bbox (уже в x1,y1,x2,y2),
+    маппит классы и записывает в единый формат manifest CSV.
+
+    Args:
+        annotations_path (Path): Путь к CSV-файлу с аннотациями.
+        images_dir (Path): Директория с изображениями.
+        out_path (Path): Путь к выходному CSV-файлу.
+        split (str): Тип сплита ('train', 'val' и т.д.).
+        map_all_to (str): Класс, к которому маппятся все объекты (по умолчанию 'item').
+        source (str): Источник данных (по умолчанию 'sku110k').
+        limit (int | None): Максимальное количество аннотаций (опционально).
+        check_files (bool): Проверять существование файлов изображений.
+
+    Returns:
+        None
+
+    Raises:
+        SystemExit: Если файлы аннотаций или директория изображений не найдены.
+        ValueError: При ошибках парсинга CSV или чисел.
+    """
     if not annotations_path.exists():
         raise SystemExit(f"[error] annotations not found: {annotations_path}")
     if not images_dir.exists():
@@ -98,6 +133,26 @@ def convert_sku110k(
 
 
 def main() -> None:
+    """Главная функция скрипта для конвертации SKU110K manifest.
+
+    Парсит аргументы командной строки и вызывает convert_sku110k.
+
+    Аргументы командной строки:
+    - --annotations: Путь к CSV-файлу с аннотациями (обязательно).
+    - --images-dir: Директория с изображениями (обязательно).
+    - --split: Тип сплита (по умолчанию 'train').
+    - --out: Путь к выходному CSV-файлу (обязательно).
+    - --map-all-to: Класс для маппинга (по умолчанию 'item').
+    - --source: Источник данных (по умолчанию 'sku110k').
+    - --limit: Максимальное количество аннотаций (опционально).
+    - --check-files: Проверять существование файлов изображений.
+
+    Returns:
+        None
+
+    Raises:
+        SystemExit: При ошибках парсинга или выполнения.
+    """
     parser = argparse.ArgumentParser(description="Convert SKU110K CSV annotations to manifest CSV.")
     parser.add_argument("--annotations", type=Path, required=True)
     parser.add_argument("--images-dir", type=Path, required=True)
