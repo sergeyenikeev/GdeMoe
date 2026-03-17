@@ -1,3 +1,5 @@
+"""Проверяет API локаций: создание, иерархию и медиапривязки."""
+
 from pathlib import Path
 
 import pytest

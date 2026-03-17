@@ -1,3 +1,5 @@
+"""Утилиты, которые проверяют валидации media routes."""
+
 from app.api.routes import media
 from app.models.enums import MediaType
 import pytest

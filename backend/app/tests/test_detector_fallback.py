@@ -1,3 +1,5 @@
+"""Проверяет fallback-детектор, когда YOLO/cv2 недоступны."""
+
 import numpy as np
 
 from app.services.ai.detector import detect_objects

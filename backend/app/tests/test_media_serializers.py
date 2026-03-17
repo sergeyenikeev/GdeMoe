@@ -1,3 +1,5 @@
+"""Юнит-тесты сериализации медиа/детекций."""
+
 from types import SimpleNamespace
 
 from app.api.routes.media import _serialize_detection, _serialize_detection_object

@@ -1,3 +1,5 @@
+"""Интеграционные тесты upload + AI: проверяют весь путь от загрузки до review."""
+
 from datetime import datetime
 from pathlib import Path
 
