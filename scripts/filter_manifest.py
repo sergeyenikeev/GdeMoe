@@ -23,7 +23,19 @@ from typing import Dict, List, Optional
 
 
 def _parse_list(value: Optional[str]) -> List[str]:
-    """Разбирает аргументы вида `a,b,c` в список строк."""
+    """Разбирает аргументы вида `a,b,c` в список строк.
+
+    Разделяет строку по запятым, удаляет пробелы и пустые элементы.
+
+    Args:
+        value: Строка с разделёнными запятыми значениями.
+
+    Returns:
+        Список очищенных строк.
+    """
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
     if not value:
         return []
     return [item.strip() for item in value.split(",") if item.strip()]
@@ -41,7 +53,70 @@ def filter_manifest(
     shuffle: bool,
     max_rows: Optional[int],
 ) -> None:
-    """Фильтрует manifest и сохраняет новый CSV."""
+    """Фильтрует manifest и сохраняет новый CSV.
+
+    Применяет фильтры по датасетам и классам, ограничивает количество
+    строк на класс и общий объём, перемешивает при необходимости.
+
+    Args:
+        input_path: Путь к входному manifest CSV.
+        out_path: Путь к выходному отфильтрованному CSV.
+        include_dataset: Список датасетов для включения (если пустой - все).
+        exclude_dataset: Список датасетов для исключения.
+        include_class: Список классов для включения (если пустой - все).
+        exclude_class: Список классов для исключения.
+        max_per_class: Максимум строк на класс.
+        seed: Seed для случайности.
+        shuffle: Перемешивать строки.
+        max_rows: Максимум общих строк.
+    """
+    if not input_path.exists():
+        raise SystemExit(f"[error] manifest not found: {input_path}")
+
+    rows: List[dict] = []
+    with input_path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        header = reader.fieldnames
+        for row in reader:
+            dataset = row.get("dataset", "")
+            cls = row.get("mapped_class", "")
+            if include_dataset and dataset not in include_dataset:
+                continue
+            if exclude_dataset and dataset in exclude_dataset:
+                continue
+            if include_class and cls not in include_class:
+                continue
+            if exclude_class and cls in exclude_class:
+                continue
+            rows.append(row)
+
+    rnd = random.Random(seed)
+    if shuffle:
+        rnd.shuffle(rows)
+
+    if max_per_class is not None:
+        # Сначала раскладываем строки по проектным классам,
+        # затем режем каждый бакет до заданного лимита.
+        buckets: Dict[str, List[dict]] = {}
+        for row in rows:
+            buckets.setdefault(row.get("mapped_class", ""), []).append(row)
+        rows = []
+        for cls, items in buckets.items():
+            if shuffle:
+                rnd.shuffle(items)
+            rows.extend(items[:max_per_class])
+
+    if max_rows is not None:
+        if shuffle:
+            rnd.shuffle(rows)
+        rows = rows[:max_rows]
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=header)
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"[done] filtered rows={len(rows)} written to {out_path}")
     if not input_path.exists():
         raise SystemExit(f"[error] manifest not found: {input_path}")
 
@@ -92,6 +167,11 @@ def filter_manifest(
 
 
 def main() -> None:
+    """Главная функция скрипта для фильтрации manifest.
+
+    Парсит аргументы командной строки и вызывает filter_manifest
+    для обработки CSV-файла с указанными фильтрами.
+    """
     parser = argparse.ArgumentParser(description="Filter manifest CSV.")
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)

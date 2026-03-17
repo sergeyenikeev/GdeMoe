@@ -12,7 +12,9 @@ from app.models.enums import AIDetectionStatus, AIDetectionDecision, AIDetection
 class AIDetection(Base):
     """Одна сессия анализа медиа.
 
-    Для изображения это обычно одна запись, для видео — несколько записей по кадрам.
+    Представляет процесс анализа одного медиа-файла AI.
+    Для изображения обычно одна запись, для видео — несколько по кадрам.
+    Хранит статус, время создания/завершения и технические детали в raw.
     """
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     media_id: Mapped[int] = mapped_column(ForeignKey("media.id"), nullable=False)
@@ -31,7 +33,31 @@ class AIDetection(Base):
 
 
 class AIDetectionObject(Base):
-    """Один найденный объект внутри детекции."""
+    """Один найденный объект внутри детекции.
+
+    Хранит информацию об отдельном распознанном объекте: метку, уверенность,
+    bounding box, предложенную локацию и итоговое решение пользователя.
+    """
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    detection_id: Mapped[int] = mapped_column(ForeignKey("aidetection.id"), nullable=False)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    confidence: Mapped[float] = mapped_column(Numeric(5, 3))
+    bbox: Mapped[dict | None] = mapped_column(JSON)
+    suggested_location_id: Mapped[int | None] = mapped_column(ForeignKey("location.id"))
+    decision: Mapped[AIDetectionDecision] = mapped_column(
+        Enum(AIDetectionDecision, values_callable=lambda x: [e.value for e in x]),
+        default=AIDetectionDecision.PENDING,
+        nullable=False,
+    )
+    decided_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # linked_* — итоговые привязки после ручного подтверждения в AI Review.
+    linked_item_id: Mapped[int | None] = mapped_column(ForeignKey("item.id"), nullable=True)
+    linked_location_id: Mapped[int | None] = mapped_column(ForeignKey("location.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    detection = relationship("AIDetection", back_populates="objects")
+    candidates = relationship("AIDetectionCandidate", back_populates="detection_object")
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     detection_id: Mapped[int] = mapped_column(ForeignKey("aidetection.id"), nullable=False)
     label: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -55,7 +81,18 @@ class AIDetectionObject(Base):
 
 
 class AIDetectionCandidate(Base):
-    """Кандидат привязки объекта к предмету с вычисленным score."""
+    """Кандидат привязки объекта к предмету с вычисленным score.
+
+    Хранит возможные соответствия распознанного объекта существующим предметам,
+    ранжированные по степени схожести (score).
+    """
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    detection_object_id: Mapped[int] = mapped_column(ForeignKey("aidetectionobject.id"), nullable=False)
+    item_id: Mapped[int] = mapped_column(ForeignKey("item.id"), nullable=False)
+    score: Mapped[float] = mapped_column(Numeric(5, 3))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    detection_object = relationship("AIDetectionObject", back_populates="candidates")
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     detection_object_id: Mapped[int] = mapped_column(ForeignKey("aidetectionobject.id"), nullable=False)
     item_id: Mapped[int] = mapped_column(ForeignKey("item.id"), nullable=False)
@@ -66,7 +103,21 @@ class AIDetectionCandidate(Base):
 
 
 class AIDetectionReview(Base):
-    """Аудит-лог пользовательских действий в AI Review."""
+    """Аудит-лог пользовательских действий в AI Review.
+
+    Записывает все действия пользователя по подтверждению/отклонению
+    результатов AI-анализа для аудита и истории изменений.
+    """
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    detection_id: Mapped[int] = mapped_column(ForeignKey("aidetection.id"), nullable=False, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"), nullable=True)
+    action: Mapped[AIDetectionReviewAction] = mapped_column(
+        Enum(AIDetectionReviewAction, values_callable=lambda x: [e.value for e in x]), nullable=False
+    )
+    payload: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    detection = relationship("AIDetection", back_populates="reviews")
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     detection_id: Mapped[int] = mapped_column(ForeignKey("aidetection.id"), nullable=False, index=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"), nullable=True)

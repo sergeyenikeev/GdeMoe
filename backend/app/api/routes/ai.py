@@ -40,7 +40,27 @@ logger = logging.getLogger(__name__)
 
 
 async def _ensure_exists(db: AsyncSession, model, obj_id: int | None, label: str) -> None:
-    """Проверяет существование связанных сущностей до записи решения review."""
+    """Проверяет существование связанных сущностей до записи решения review.
+
+    Выполняет запрос к базе данных для проверки, существует ли объект
+    с указанным ID. Используется перед принятием решений по review,
+    чтобы избежать ссылок на несуществующие предметы или локации.
+
+    Args:
+        db: Асинхронная сессия базы данных.
+        model: ORM-модель для проверки (Item, Location и т.д.).
+        obj_id: ID объекта для проверки (может быть None).
+        label: Название сущности для сообщения об ошибке.
+
+    Raises:
+        HTTPException: Если объект не найден.
+    """
+    if obj_id is None:
+        return
+    stmt = select(model.id).where(model.id == obj_id)
+    exists = (await db.execute(stmt)).scalar_one_or_none()
+    if exists is None:
+        raise HTTPException(status_code=404, detail=f"{label} not found")
     if obj_id is None:
         return
     stmt = select(model.id).where(model.id == obj_id)
@@ -50,14 +70,42 @@ async def _ensure_exists(db: AsyncSession, model, obj_id: int | None, label: str
 
 
 async def _resolve_review_user_id(db: AsyncSession, detection: AIDetection) -> int | None:
-    """Берёт владельца медиа как пользователя, принявшего решение по review."""
+    """Берёт владельца медиа как пользователя, принявшего решение по review.
+
+    Определяет пользователя, который загрузил медиа-файл, связанный с детекцией.
+    Этот пользователь считается ответственным за review-действия.
+
+    Args:
+        db: Асинхронная сессия базы данных.
+        detection: Объект детекции AI.
+
+    Returns:
+        ID пользователя-владельца медиа или None.
+    """
+    result = await db.execute(select(Media.owner_user_id).where(Media.id == detection.media_id))
+    return result.scalar_one_or_none()
     result = await db.execute(select(Media.owner_user_id).where(Media.id == detection.media_id))
     return result.scalar_one_or_none()
 
 
 @router.post("/analyze")
 async def request_analysis(payload: AITaskRequest, db: AsyncSession = Depends(get_db)):
-    """Запускает анализ изображения локально или через внешний AI-сервис."""
+    """Запускает анализ изображения локально или через внешний AI-сервис.
+
+    В зависимости от настроек (ai_service_url) либо отправляет задачу
+    на внешний сервис, либо выполняет анализ локально с помощью
+    Ultralytics и OpenCLIP. Создаёт запись детекции и обновляет историю загрузок.
+
+    Args:
+        payload: Данные запроса анализа (media_id, hint_item_ids).
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Объект AIDetectionOut с результатами анализа.
+
+    Raises:
+        HTTPException: Если AI-сервис недоступен или отсутствуют зависимости.
+    """
     # Если настроен внешний сервис, backend выступает как оркестратор:
     # создаёт запись детекции и отправляет задачу наружу.
     if settings.ai_service_url:
@@ -99,7 +147,19 @@ async def request_analysis(payload: AITaskRequest, db: AsyncSession = Depends(ge
 
 @router.post("/analyze_video")
 async def request_video_analysis(payload: AITaskRequest, db: AsyncSession = Depends(get_db)):
-    """Запускает анализ видео через выборку кадров."""
+    """Запускает анализ видео через выборку кадров.
+
+    Извлекает кадры из видео, анализирует каждый как изображение
+    и создаёт детекции для найденных объектов. Обновляет историю загрузок
+    для последнего кадра.
+
+    Args:
+        payload: Данные запроса анализа (media_id, hint_item_ids).
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Словарь с media_id и списком ID детекций.
+    """
     detection_ids = await analyze_video(payload.media_id, db, hint_item_ids=payload.hint_item_ids)
     if detection_ids:
         latest = await db.get(AIDetection, detection_ids[-1])
@@ -113,7 +173,19 @@ async def list_detections(
     status: AIDetectionStatusEnum = AIDetectionStatusEnum.PENDING,
     db: AsyncSession = Depends(get_db),
 ):
-    """Возвращает очередь AI-детекций по статусу."""
+    """Возвращает очередь AI-детекций по статусу.
+
+    Извлекает все детекции с указанным статусом, включая связанные
+    медиа и объекты детекции с кандидатами. Используется для отображения
+    очереди на review.
+
+    Args:
+        status: Статус детекций для фильтрации (по умолчанию PENDING).
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Список объектов AIDetectionOut.
+    """
     logger.info("ai.detections.list status=%s", status)
     result = await db.execute(
         select(AIDetection)
@@ -145,7 +217,23 @@ async def list_detections(
 async def accept_detection(
     detection_id: int, body: AIDetectionActionRequest, db: AsyncSession = Depends(get_db)
 ):
-    """Подтверждает детекцию и при необходимости привязывает item/location."""
+    """Подтверждает детекцию и при необходимости привязывает item/location.
+
+    Помечает детекцию как завершённую, обновляет все объекты детекции
+    с решением ACCEPTED и связывает с указанными предметом/локацией.
+    Записывает действие в журнал review и обновляет историю загрузок.
+
+    Args:
+        detection_id: ID детекции.
+        body: Данные действия (item_id, location_id).
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Обновлённый объект AIDetectionOut.
+
+    Raises:
+        HTTPException: Если детекция или связанные сущности не найдены.
+    """
     logger.info("ai.detection.accept id=%s item_id=%s location_id=%s", detection_id, body.item_id, body.location_id)
     detection = await db.get(AIDetection, detection_id)
     if detection is None:
@@ -183,7 +271,23 @@ async def accept_detection(
 async def reject_detection(
     detection_id: int, body: AIDetectionActionRequest | None = None, db: AsyncSession = Depends(get_db)
 ):
-    """Отклоняет детекцию и сохраняет решение в журнал review."""
+    """Отклоняет детекцию и сохраняет решение в журнал review.
+
+    Помечает детекцию как FAILED, обновляет объекты с решением REJECTED
+    и опционально связывает с предметом/локацией. Записывает действие
+    в аудит-лог и обновляет историю загрузок.
+
+    Args:
+        detection_id: ID детекции.
+        body: Опциональные данные действия (item_id, location_id).
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Обновлённый объект AIDetectionOut.
+
+    Raises:
+        HTTPException: Если детекция не найдена.
+    """
     logger.info("ai.detection.reject id=%s item_id=%s location_id=%s", detection_id, body.item_id if body else None, body.location_id if body else None)
     detection = await db.get(AIDetection, detection_id)
     if detection is None:
@@ -222,7 +326,23 @@ async def reject_detection(
 async def add_review_log(
     detection_id: int, body: AIDetectionReviewRequest, db: AsyncSession = Depends(get_db)
 ):
-    """Пишет произвольное действие review в аудит-лог."""
+    """Пишет произвольное действие review в аудит-лог.
+
+    Позволяет записывать дополнительные действия пользователя
+    по review детекции (например, комментарии или промежуточные решения)
+    в таблицу AIDetectionReview для аудита.
+
+    Args:
+        detection_id: ID детекции.
+        body: Данные review (action, payload).
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Словарь со статусом "ok".
+
+    Raises:
+        HTTPException: Если детекция не найдена.
+    """
     logger.info("ai.detection.review_log id=%s action=%s", detection_id, body.action)
     detection = await db.get(AIDetection, detection_id)
     if detection is None:
@@ -246,7 +366,22 @@ async def update_detection_object(
     body: AIDetectionObjectUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Позволяет точечно поправить один объект детекции без пересоздания всей записи."""
+    """Позволяет точечно поправить один объект детекции без пересоздания всей записи.
+
+    Обновляет поля объекта детекции (связи с item/location, решение)
+    и обновляет время принятия решения. Синхронизирует историю загрузок.
+
+    Args:
+        object_id: ID объекта детекции.
+        body: Данные для обновления (item_id, location_id, decision).
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Обновлённый объект AIDetectionObjectOut.
+
+    Raises:
+        HTTPException: Если объект не найден.
+    """
     logger.info(
         "ai.detection.object.update id=%s item_id=%s location_id=%s decision=%s",
         object_id,
@@ -275,7 +410,18 @@ async def update_detection_object(
 
 
 async def _load_detection(db: AsyncSession, detection_id: int) -> AIDetectionOut:
-    """Загружает детекцию вместе с медиа и кандидатами для ответа API."""
+    """Загружает детекцию вместе с медиа и кандидатами для ответа API.
+
+    Выполняет eager loading связанных объектов (media, objects, candidates)
+    для избежания lazy-load проблем при сериализации.
+
+    Args:
+        db: Асинхронная сессия базы данных.
+        detection_id: ID детекции.
+
+    Returns:
+        Объект AIDetectionOut с полными данными.
+    """
     result = await db.execute(
         select(AIDetection)
         .where(AIDetection.id == detection_id)
@@ -298,6 +444,17 @@ async def _load_detection(db: AsyncSession, detection_id: int) -> AIDetectionOut
 
 
 def _object_out(obj: AIDetectionObject) -> AIDetectionObjectOut:
+    """Сериализует объект детекции в формат ответа API.
+
+    Преобразует ORM-объект в Pydantic-модель для JSON-ответа,
+    включая список кандидатов с их скорами.
+
+    Args:
+        obj: ORM-объект AIDetectionObject.
+
+    Returns:
+        Объект AIDetectionObjectOut.
+    """
     return AIDetectionObjectOut(
         id=obj.id,
         label=obj.label,
@@ -312,7 +469,16 @@ def _object_out(obj: AIDetectionObject) -> AIDetectionObjectOut:
 
 
 async def _update_upload_history(db: AsyncSession, detection: AIDetection) -> None:
-    """Синхронизирует `MediaUploadHistory` с актуальным состоянием AI."""
+    """Синхронизирует `MediaUploadHistory` с актуальным состоянием AI.
+
+    Обновляет запись истории загрузки медиа с текущим статусом AI,
+    summary объектов детекции и ID детекции. Используется для отслеживания
+    прогресса обработки медиа.
+
+    Args:
+        db: Асинхронная сессия базы данных.
+        detection: Объект детекции AI.
+    """
     loaded = await db.execute(
         select(AIDetection)
         .where(AIDetection.id == detection.id)

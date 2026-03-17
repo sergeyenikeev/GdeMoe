@@ -9,7 +9,24 @@ from app.core.config import settings
 
 
 def create_access_token(subject: str | int, expires_delta: timedelta | None = None) -> str:
-    """Создаёт JWT access token для пользователя или другого субъекта."""
+    """Создаёт JWT access token для пользователя или другого субъекта.
+
+    Генерирует подписанный JWT-токен с указанным subject (обычно ID пользователя)
+    и временем истечения. Использует настройки из config для ключа и алгоритма.
+
+    Args:
+        subject: Идентификатор субъекта (например, user ID).
+        expires_delta: Время жизни токена (по умолчанию из настроек).
+
+    Returns:
+        Закодированный JWT-токен в виде строки.
+    """
+    if expires_delta is None:
+        expires_delta = timedelta(minutes=settings.jwt_access_token_expires_minutes)
+    expire = datetime.now(timezone.utc) + expires_delta
+    to_encode: dict[str, Any] = {"exp": expire, "sub": str(subject)}
+    encoded_jwt = jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    return encoded_jwt
     if expires_delta is None:
         expires_delta = timedelta(minutes=settings.jwt_access_token_expires_minutes)
     expire = datetime.now(timezone.utc) + expires_delta
