@@ -1,7 +1,8 @@
-"""
-Lightweight wrapper around YOLOv8 for object detection.
-Lazy-loads model to avoid heavy imports on startup.
-Фолбэк контурный детектор, если веса YOLO недоступны.
+"""Лёгкая обёртка вокруг YOLOv8 с безопасным фолбэком.
+
+Модель загружается лениво, чтобы backend не падал на старте, если в системе
+нет torch/ultralytics или не скачаны веса. В этом случае включается простой
+контурный детектор.
 """
 
 import logging
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class DetectedObject:
+    """Нормализованное представление одного найденного объекта."""
     def __init__(self, bbox: Tuple[float, float, float, float], label: str, score: float):
         self.bbox = bbox  # (x1, y1, x2, y2)
         self.label = label
@@ -24,6 +26,7 @@ class DetectedObject:
 
 @lru_cache(maxsize=1)
 def _load_model():
+    """Лениво загружает YOLO и кеширует объект модели."""
     try:
         from ultralytics import YOLO
     except ImportError as exc:  # noqa: BLE001
@@ -48,9 +51,7 @@ def _load_model():
 
 
 def _fallback_detect(image_array: np.ndarray) -> List[DetectedObject]:
-    """
-    Фолбэк: если YOLO недоступен, возвращаем рамку вокруг самого крупного контура или всего кадра.
-    """
+    """Упрощённый детектор на случай недоступности YOLO."""
     try:
         import cv2
     except Exception:
@@ -71,6 +72,7 @@ def _fallback_detect(image_array: np.ndarray) -> List[DetectedObject]:
 
 
 def detect_objects(image_array: np.ndarray, conf: float = 0.25) -> List[DetectedObject]:
+    """Основная точка входа детектора с автоматическим фолбэком."""
     try:
         model = _load_model()
     except Exception as exc:  # noqa: BLE001

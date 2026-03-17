@@ -1,3 +1,9 @@
+"""CRUD и связанные операции для предметов.
+
+Здесь живёт не только базовая работа с `Item`, но и всё, что нужно UI:
+поиск, сериализация атрибутов, теги и список связанных медиа.
+"""
+
 import os
 import json
 from pathlib import Path
@@ -20,6 +26,7 @@ router = APIRouter(prefix="/items", tags=["items"])
 
 
 async def _item_tags(item_id: int, db: AsyncSession) -> list[str]:
+    """Возвращает список текстовых тегов для одного предмета."""
     stmt = (
         select(Tag.name)
         .join(ItemTag, ItemTag.tag_id == Tag.id)
@@ -30,9 +37,15 @@ async def _item_tags(item_id: int, db: AsyncSession) -> list[str]:
 
 
 async def _serialize_item(item: Item, db: AsyncSession) -> ItemOut:
+    """Собирает `ItemOut` из ORM-объекта и нормализует JSON-атрибуты.
+
+    Часть полей исторически хранится внутри `attributes`, но мобильный клиент
+    ожидает их как обычные верхнеуровневые поля ответа.
+    """
     tags = await _item_tags(item.id, db)
     attrs: dict = item.attributes or {}
-    # normalize links to list[str]
+    # Исторически `links` могли лежать и как список, и как JSON-строка.
+    # Для ответа всегда приводим к `list[str]`.
     links_val = attrs.get("links")
     links_list: list[str] | None = None
     if isinstance(links_val, list):
@@ -83,6 +96,7 @@ async def _serialize_item(item: Item, db: AsyncSession) -> ItemOut:
 
 @router.get("/", response_model=list[ItemOut])
 async def list_items(db: AsyncSession = Depends(get_db)) -> list[ItemOut]:
+    """Возвращает последние предметы workspace."""
     result = await db.execute(select(Item).order_by(Item.created_at.desc()).limit(100))
     items = result.scalars().all()
     return [await _serialize_item(item, db) for item in items]
@@ -94,6 +108,7 @@ async def search_items(
     status: ItemStatus | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> list[ItemOut]:
+    """Простой поиск по title/description/category и статусу."""
     stmt = select(Item).order_by(Item.created_at.desc()).limit(100)
     if query:
         pattern = f"%{query.lower()}%"
@@ -115,8 +130,13 @@ async def create_item(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ItemOut:
+    """Создаёт новый предмет.
+
+    На входе часть полей приходит отдельно, а в БД они укладываются
+    в `attributes`, чтобы не раздувать таблицу под редко используемые поля.
+    """
     data = payload.dict(exclude_none=True)
-    # ensure status is valid enum
+    # На клиенте статус может приехать строкой; нормализуем в enum.
     status = data.get("status", ItemStatus.OK)
     if isinstance(status, str):
         try:
@@ -147,6 +167,7 @@ async def create_item(
 
 @router.get("/{item_id}", response_model=ItemOut)
 async def get_item(item_id: int, db: AsyncSession = Depends(get_db)) -> Item:
+    """Возвращает одну карточку предмета."""
     item = await db.get(Item, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -159,6 +180,7 @@ async def update_item(
     payload: ItemUpdate,
     db: AsyncSession = Depends(get_db),
 ) -> ItemOut:
+    """Частично обновляет предмет, сохраняя старые значения в `attributes`."""
     item = await db.get(Item, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -166,9 +188,11 @@ async def update_item(
     tags = data.pop("tags", None)
     existing_attrs: dict = item.attributes or {}
     attrs = data.get("attributes") or {}
-    # merge existing attributes to avoid losing saved keys
+    # Обновление attributes делаем через merge, чтобы не потерять
+    # уже сохранённые JSON-поля, которые не пришли в PATCH.
     attrs = {**existing_attrs, **attrs}
-    # move known attributes into attrs to persist JSON
+    # Эти поля логически относятся к карточке предмета, но физически
+    # тоже лежат внутри JSON `attributes`.
     links = data.pop("links", None)
     for attr_key in ["purchase_datetime", "quantity", "manufacturer", "origin_country", "location_ids"]:
         val = data.pop(attr_key, None)
@@ -193,6 +217,7 @@ async def delete_item(
     item_id: int,
     db: AsyncSession = Depends(get_db),
 ):
+    """Удаляет предмет целиком."""
     item = await db.get(Item, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -202,6 +227,7 @@ async def delete_item(
 
 
 def _serialize_media(media: Media, detection: AIDetection | None, objects: list[AIDetectionObject]) -> dict:
+    """Упрощённая сериализация медиа в контексте карточки предмета."""
     return {
         "id": media.id,
         "path": media.path,
@@ -230,6 +256,7 @@ def _serialize_media(media: Media, detection: AIDetection | None, objects: list[
 
 @router.get("/{item_id}/media")
 async def list_item_media(item_id: int, db: AsyncSession = Depends(get_db)):
+    """Возвращает медиа, привязанные к предмету, вместе с последней детекцией."""
     item = await db.get(Item, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -259,6 +286,7 @@ async def list_item_media(item_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{item_id}/media/{media_id}", status_code=status.HTTP_201_CREATED)
 async def link_media_to_item(item_id: int, media_id: int, db: AsyncSession = Depends(get_db)):
+    """Создаёт связь между предметом и уже загруженным медиа."""
     item = await db.get(Item, item_id)
     media = await db.get(Media, media_id)
     if not item or not media:
@@ -278,6 +306,7 @@ async def unlink_media_from_item(
     delete_file: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
+    """Удаляет связь item-media и при необходимости сам файл с каскадной очисткой."""
     link_stmt = select(ItemMedia).where(ItemMedia.item_id == item_id, ItemMedia.media_id == media_id)
     link = (await db.execute(link_stmt)).scalar_one_or_none()
     if not link:
@@ -287,7 +316,8 @@ async def unlink_media_from_item(
         media = await db.get(Media, media_id)
         if media:
             await db.delete(media)
-            # delete physical file best-effort
+            # Физический файл удаляем best-effort: отсутствие доступа к диску
+            # не должно оставлять транзакцию в подвешенном состоянии.
             scope = "private" if media.path.startswith("private/") else "public"
             base = Path(settings.media_private_path if scope == "private" else settings.media_public_path)
             rel = Path(media.path.removeprefix("private/")) if scope == "private" else Path(media.path)
@@ -297,14 +327,20 @@ async def unlink_media_from_item(
                     full_path.unlink()
             except Exception:
                 pass
-            # cleanup detections
+            # Детекции хранятся отдельно и тоже должны исчезнуть, иначе
+            # AI history останется указывать на уже удалённое медиа.
             await db.execute(delete(AIDetection).where(AIDetection.media_id == media_id))
     await db.commit()
     return None
 
 
 async def _upsert_tags(item_id: int, workspace_id: int, tags: list[str], db: AsyncSession):
-    # remove existing
+    """Пересоздаёт набор тегов для предмета.
+
+    Здесь выбран простой путь: полностью очищаем старые связи и создаём новые.
+    Для текущих объёмов данных это надёжнее и проще, чем дифф по множествам.
+    """
+    # Сначала удаляем старые связи item-tag.
     await db.execute(delete(ItemTag).where(ItemTag.item_id == item_id))
     if not tags:
         return

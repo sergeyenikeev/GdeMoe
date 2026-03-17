@@ -1,3 +1,5 @@
+"""ORM-модель задач, связанных с предметами и локациями."""
+
 from datetime import datetime
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, func, Enum
@@ -8,6 +10,7 @@ from app.models.enums import TodoStatus
 
 
 class Todo(Base):
+    """Напоминание или задача по предмету/локации."""
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspace.id"), nullable=False)
     item_id: Mapped[int | None] = mapped_column(ForeignKey("item.id"))

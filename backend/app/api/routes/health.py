@@ -1,3 +1,5 @@
+"""Healthcheck-эндпоинты для сервиса и окружения."""
+
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
@@ -12,21 +14,27 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health")
 async def healthcheck() -> dict:
+    """Быстрый liveness-check без доступа к зависимостям."""
     return {"status": "ok"}
 
 
 @router.get("/health/full")
 async def healthcheck_full(db: AsyncSession = Depends(get_db)) -> dict:
+    """Проверяет БД, пути к медиа и наличие весов YOLO.
+
+    Этот маршрут нужен в первую очередь для деплоя на NAS и диагностики
+    окружения, где может не хватать доступа к диску или локальных весов.
+    """
     checks: dict[str, dict] = {}
 
-    # DB connectivity
+    # Проверка, что приложение вообще может открыть соединение с БД.
     try:
         await db.execute(text("select 1"))
         checks["db"] = {"ok": True}
     except Exception as exc:  # noqa: BLE001
         checks["db"] = {"ok": False, "error": str(exc)}
 
-    # Media paths availability
+    # Проверка директорий, в которые backend должен сохранять файлы и превью.
     public_path = Path(settings.media_public_path)
     private_path = Path(settings.media_private_path)
     checks["media_paths"] = {
@@ -35,7 +43,7 @@ async def healthcheck_full(db: AsyncSession = Depends(get_db)) -> dict:
         "private_exists": private_path.exists(),
     }
 
-    # YOLO weights presence (without loading model)
+    # Проверяем только наличие файла весов, не загружая модель в память.
     if settings.ai_yolo_weights_path:
         yolo_weights = Path(settings.ai_yolo_weights_path)
         if not yolo_weights.is_absolute():

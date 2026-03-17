@@ -1,3 +1,5 @@
+"""Pydantic-схемы предметов для API."""
+
 from datetime import datetime
 from typing import Any
 
@@ -7,6 +9,7 @@ from app.models.enums import ItemStatus, Scope
 
 
 class ItemBase(BaseModel):
+    """Общая база для create/update/out схем предмета."""
     title: str
     description: str | None = None
     category: str | None = None
@@ -15,6 +18,7 @@ class ItemBase(BaseModel):
     links: list[str] | None = None
     model: str | None = None
     serial_number: str | None = None
+    # Часть дат пока хранится строками, потому что клиенту и импорту так проще.
     purchase_date: str | None = None  # ISO date (YYYY-MM-DD)
     purchase_datetime: str | None = None  # ISO datetime (YYYY-MM-DDTHH:MM:SSZ)
     price: float | None = None
@@ -35,10 +39,12 @@ class ItemBase(BaseModel):
 
 
 class ItemCreate(ItemBase):
+    """Схема создания предмета."""
     workspace_id: int = 2
 
 
 class ItemUpdate(BaseModel):
+    """Частичное обновление предмета."""
     title: str | None = None
     description: str | None = None
     status: ItemStatus | None = None
@@ -61,6 +67,7 @@ class ItemUpdate(BaseModel):
 
 
 class ItemOut(ItemBase):
+    """Ответ API по предмету."""
     id: int
     workspace_id: int
     owner_user_id: int

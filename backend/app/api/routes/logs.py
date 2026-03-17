@@ -1,3 +1,5 @@
+"""Приём клиентских логов от мобильного приложения."""
+
 import logging
 from datetime import datetime
 
@@ -9,6 +11,7 @@ logger = logging.getLogger("client_logs")
 
 
 class LogEvent(BaseModel):
+    """Минимальная структура одного клиентского лог-события."""
     name: str
     level: str = Field(default="info", pattern="^(debug|info|warning|error)$")
     params: dict | None = None
@@ -18,6 +21,7 @@ class LogEvent(BaseModel):
 
 @router.post("/")
 async def ingest_log(event: LogEvent):
+    """Принимает событие с клиента и прокидывает его в серверный логгер."""
     ts = event.created_at.isoformat() if event.created_at else ""
     log_func = getattr(logger, event.level, logger.info)
     log_func("client_log name=%s device=%s ts=%s params=%s", event.name, event.device, ts, event.params)

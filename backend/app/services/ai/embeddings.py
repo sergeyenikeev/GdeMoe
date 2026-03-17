@@ -1,6 +1,7 @@
-"""
-Image/text embeddings via OpenCLIP.
-Lazy import torch/open_clip to avoid startup crashes if deps are missing.
+"""Эмбеддинги изображений и текста через OpenCLIP.
+
+Импорт тяжёлых зависимостей делаем лениво, чтобы backend мог стартовать даже
+в окружениях, где CLIP не установлен и доступен только фолбэк-пайплайн.
 """
 from functools import lru_cache
 
@@ -9,6 +10,7 @@ import numpy as np
 
 @lru_cache(maxsize=1)
 def _load_clip():
+    """Лениво поднимает OpenCLIP-модель и сопутствующие объекты."""
     try:
         import torch
         import open_clip
@@ -25,6 +27,7 @@ def _load_clip():
 
 
 def image_embedding(pil_image) -> np.ndarray:
+    """Возвращает нормализованный embedding изображения."""
     import torch
 
     model, preprocess, _, device = _load_clip()
@@ -36,6 +39,7 @@ def image_embedding(pil_image) -> np.ndarray:
 
 
 def text_embedding(text: str) -> np.ndarray:
+    """Возвращает нормализованный embedding текстовой строки."""
     import torch
 
     model, _, tokenizer, device = _load_clip()

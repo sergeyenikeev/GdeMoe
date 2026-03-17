@@ -1,3 +1,5 @@
+"""ORM-модель пакетного добавления предметов."""
+
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, func
@@ -7,6 +9,7 @@ from app.db.base_class import Base
 
 
 class ItemBatch(Base):
+    """Группа предметов, созданных одним пакетным сценарием."""
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspace.id"), nullable=False, index=True)
     location_id: Mapped[int | None] = mapped_column(ForeignKey("location.id"), nullable=True)

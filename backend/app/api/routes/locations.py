@@ -1,3 +1,5 @@
+"""CRUD и связанные операции для иерархии локаций."""
+
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def _build_location_path(parent: Location | None, name: str) -> str:
+    """Собирает materialized path для дерева локаций."""
     if not parent:
         return name
     base = parent.path or str(parent.id)
@@ -25,6 +28,7 @@ def _build_location_path(parent: Location | None, name: str) -> str:
 
 
 async def _load_parent(db: AsyncSession, parent_id: int | None, current_id: int | None) -> Location | None:
+    """Загружает родителя и не даёт построить циклическую иерархию."""
     if parent_id is None:
         return None
     parent = await db.get(Location, parent_id)
@@ -32,7 +36,8 @@ async def _load_parent(db: AsyncSession, parent_id: int | None, current_id: int 
         raise HTTPException(status_code=400, detail="Parent not found")
     if current_id and parent_id == current_id:
         raise HTTPException(status_code=400, detail="Parent cannot be self")
-    # Prevent cycles by walking ancestors
+    # Не даём сделать цикл в дереве: поднимаемся по предкам и проверяем,
+    # не пытаемся ли в какой-то момент сослаться на текущую ноду.
     cursor = parent
     while cursor and cursor.parent_id:
         if current_id and cursor.parent_id == current_id:
@@ -44,6 +49,7 @@ async def _load_parent(db: AsyncSession, parent_id: int | None, current_id: int 
 async def _update_descendant_paths(
     db: AsyncSession, old_path: str | None, new_path: str | None
 ) -> None:
+    """Обновляет materialized path у всех потомков после перемещения узла."""
     if not old_path or not new_path or old_path == new_path:
         return
     pattern = f"{old_path}.%"
@@ -53,6 +59,7 @@ async def _update_descendant_paths(
 
 
 async def _validate_photo_media(db: AsyncSession, media_id: int) -> Media:
+    """Проверяет, что медиа существует и подходит на роль фото локации."""
     media = await db.get(Media, media_id)
     if not media:
         raise HTTPException(status_code=404, detail="Media not found")
@@ -62,6 +69,7 @@ async def _validate_photo_media(db: AsyncSession, media_id: int) -> Media:
 
 
 def _serialize_location_media(media: Media) -> dict:
+    """Готовит медиа локации для ответа API."""
     return {
         "id": media.id,
         "path": media.path,
@@ -74,6 +82,7 @@ def _serialize_location_media(media: Media) -> dict:
 @router.get("", response_model=list[LocationOut])
 @router.get("/", response_model=list[LocationOut])
 async def list_locations(db: AsyncSession = Depends(get_db)) -> list[Location]:
+    """Возвращает все локации в порядке, удобном для построения дерева."""
     res = await db.execute(select(Location).order_by(Location.parent_id.nullsfirst(), Location.id))
     return res.scalars().all()
 
@@ -81,6 +90,7 @@ async def list_locations(db: AsyncSession = Depends(get_db)) -> list[Location]:
 @router.post("", response_model=LocationOut, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=LocationOut, status_code=status.HTTP_201_CREATED)
 async def create_location(payload: LocationCreate, db: AsyncSession = Depends(get_db)) -> Location:
+    """Создаёт новую локацию и при необходимости привязывает фото."""
     if not payload.name or not payload.name.strip():
         raise HTTPException(status_code=400, detail="Location name is required")
     parent = await _load_parent(db, payload.parent_id, None)
@@ -110,6 +120,7 @@ async def create_location(payload: LocationCreate, db: AsyncSession = Depends(ge
 
 @router.patch("/{location_id}", response_model=LocationOut)
 async def update_location(location_id: int, payload: LocationUpdate, db: AsyncSession = Depends(get_db)) -> Location:
+    """Обновляет локацию, включая перенос по дереву и смену фото."""
     loc = await db.get(Location, location_id)
     if not loc:
         raise HTTPException(status_code=404, detail="Location not found")
@@ -153,6 +164,7 @@ async def update_location(location_id: int, payload: LocationUpdate, db: AsyncSe
 
 @router.delete("/{location_id}/parent", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_location_parent(location_id: int, db: AsyncSession = Depends(get_db)):
+    """Поднимает локацию в корень дерева."""
     loc = await db.get(Location, location_id)
     if not loc:
         raise HTTPException(status_code=404, detail="Location not found")
@@ -167,6 +179,7 @@ async def clear_location_parent(location_id: int, db: AsyncSession = Depends(get
 
 @router.delete("/{location_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_location(location_id: int, db: AsyncSession = Depends(get_db)):
+    """Удаляет локацию."""
     loc = await db.get(Location, location_id)
     if not loc:
         raise HTTPException(status_code=404, detail="Location not found")
@@ -177,6 +190,7 @@ async def delete_location(location_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.get("/{location_id}/items", response_model=list[ItemOut])
 async def items_for_location(location_id: int, db: AsyncSession = Depends(get_db)) -> list[ItemOut]:
+    """Возвращает предметы, лежащие в конкретной локации."""
     stmt = select(Item).where(Item.location_id == location_id).order_by(Item.created_at.desc())
     items = (await db.execute(stmt)).scalars().all()
     return [await _serialize_item(item, db) for item in items]
@@ -184,6 +198,7 @@ async def items_for_location(location_id: int, db: AsyncSession = Depends(get_db
 
 @router.get("/{location_id}/media")
 async def list_location_media(location_id: int, db: AsyncSession = Depends(get_db)) -> list[dict]:
+    """Возвращает медиа, привязанные к локации."""
     location = await db.get(Location, location_id)
     if not location:
         raise HTTPException(status_code=404, detail="Location not found")
@@ -195,6 +210,7 @@ async def list_location_media(location_id: int, db: AsyncSession = Depends(get_d
 
 @router.post("/{location_id}/media/{media_id}", status_code=status.HTTP_201_CREATED)
 async def link_media_to_location(location_id: int, media_id: int, db: AsyncSession = Depends(get_db)) -> dict:
+    """Привязывает уже загруженное медиа к локации."""
     location = await db.get(Location, location_id)
     media = await db.get(Media, media_id)
     if not location or not media:
@@ -209,6 +225,7 @@ async def link_media_to_location(location_id: int, media_id: int, db: AsyncSessi
 
 @router.post("/{location_id}/photo/{media_id}", status_code=status.HTTP_201_CREATED)
 async def set_location_photo(location_id: int, media_id: int, db: AsyncSession = Depends(get_db)) -> dict:
+    """Делает конкретное фото главной фотографией локации."""
     location = await db.get(Location, location_id)
     if not location:
         raise HTTPException(status_code=404, detail="Location not found")
@@ -224,6 +241,7 @@ async def set_location_photo(location_id: int, media_id: int, db: AsyncSession =
 
 @router.delete("/{location_id}/photo", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_location_photo(location_id: int, db: AsyncSession = Depends(get_db)):
+    """Снимает главную фотографию с локации."""
     location = await db.get(Location, location_id)
     if not location:
         raise HTTPException(status_code=404, detail="Location not found")

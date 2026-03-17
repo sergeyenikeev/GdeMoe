@@ -1,3 +1,5 @@
+"""Утилиты для вытягивания карточки товара с публичной веб-страницы."""
+
 import json
 import re
 from html.parser import HTMLParser
@@ -7,6 +9,7 @@ import httpx
 
 
 class _MetaParser(HTMLParser):
+    """Простейший HTMLParser для meta-тегов OpenGraph/Twitter/description."""
     def __init__(self):
         super().__init__()
         self.meta: Dict[str, str] = {}
@@ -22,6 +25,7 @@ class _MetaParser(HTMLParser):
 
 
 def _parse_ld_json_blocks(html: str) -> List[Dict[str, Any]]:
+    """Собирает все блоки `application/ld+json` со страницы."""
     blocks = re.findall(
         r'<script[^>]*type=["\\\']application/ld\\+json["\\\'][^>]*>(.*?)</script>',
         html,
@@ -43,6 +47,7 @@ def _parse_ld_json_blocks(html: str) -> List[Dict[str, Any]]:
 def _extract_from_product_node(
     node: dict,
 ) -> Tuple[Dict[str, str], List[str], Optional[str], Optional[float], Optional[str]]:
+    """Вытаскивает полезные поля из schema.org Product/Offer."""
     attrs: dict[str, str] = {}
     images: list[str] = []
     title = node.get("name")
@@ -54,6 +59,7 @@ def _extract_from_product_node(
         images.append(image_val)
 
     def set_attr(key: str, value: Any):
+        """Аккуратно добавляет непустой атрибут в итоговый словарь."""
         if value is None:
             return
         text = str(value).strip()
@@ -136,7 +142,7 @@ async def fetch_public_product(url: str) -> Dict[str, Optional[str]]:
         except Exception:
             price = None
 
-    # schema.org / ld+json fallback
+    # Если OpenGraph не дал нужные поля, пробуем schema.org / ld+json.
     ld_nodes = _parse_ld_json_blocks(html)
     for node in ld_nodes:
         node_type = node.get("@type") or node.get("type")
@@ -160,7 +166,7 @@ async def fetch_public_product(url: str) -> Dict[str, Optional[str]]:
             title = node.get("name")
         break
 
-    # ozon heuristics: page stores data inside __INITIAL_STATE__ JSON
+    # Отдельная эвристика для Ozon: часть данных прячется в __INITIAL_STATE__.
     if not title or not images:
         m_state = re.search(r"__INITIAL_STATE__\"?\\?\":\\?\"({.+?})\"", html)
         if m_state:

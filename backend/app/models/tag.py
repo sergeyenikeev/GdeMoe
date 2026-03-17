@@ -1,3 +1,5 @@
+"""ORM-модели тегов и связки item-tag."""
+
 from datetime import datetime
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, func
@@ -7,6 +9,7 @@ from app.db.base_class import Base
 
 
 class Tag(Base):
+    """Тег внутри workspace."""
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspace.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -19,6 +22,7 @@ class Tag(Base):
 
 class ItemTag(Base):
     __tablename__ = "item_tags"
+    """Промежуточная таблица для связи многие-ко-многим."""
 
     item_id: Mapped[int] = mapped_column(ForeignKey("item.id"), primary_key=True)
     tag_id: Mapped[int] = mapped_column(ForeignKey("tag.id"), primary_key=True)

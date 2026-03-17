@@ -1,3 +1,5 @@
+"""Схемы для медиа и журнала загрузок."""
+
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -6,6 +8,7 @@ from app.schemas.ai import AIDetectionObjectOut
 
 
 class MediaUploadHistoryOut(BaseModel):
+    """Удобный для mobile снимок одной записи из истории загрузок."""
     id: int
     media_id: int | None = None
     workspace_id: int

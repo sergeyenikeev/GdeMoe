@@ -1,3 +1,5 @@
+"""ORM-модели групп, членства и связи групп с предметами."""
+
 from datetime import datetime
 
 from sqlalchemy import Column, ForeignKey, Integer, String, JSON, DateTime, func
@@ -7,6 +9,7 @@ from app.db.base_class import Base
 
 
 class Group(Base):
+    """Группа внутри workspace для совместной работы и логического объединения предметов."""
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspace.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -21,6 +24,7 @@ class Group(Base):
 
 
 class Membership(Base):
+    """Участие пользователя в группе с конкретной ролью."""
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False)
     group_id: Mapped[int] = mapped_column(ForeignKey("group.id"), nullable=False)
@@ -33,6 +37,7 @@ class Membership(Base):
 
 class GroupItem(Base):
     __tablename__ = "group_items"
+    """Связь многие-ко-многим между группой и предметом."""
 
     group_id: Mapped[int] = mapped_column(ForeignKey("group.id"), primary_key=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("item.id"), primary_key=True)

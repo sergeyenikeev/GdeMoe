@@ -1,3 +1,5 @@
+"""ORM-модель предмета и связанных с ним атрибутов."""
+
 from datetime import datetime
 
 from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, Numeric, String, JSON, func
@@ -8,6 +10,11 @@ from app.models.enums import ItemStatus, Scope
 
 
 class Item(Base):
+    """Главная сущность приложения: предмет, который хранит пользователь.
+
+    Основные стабильные поля вынесены в отдельные колонки, а редкие или
+    расширяемые свойства складываются в JSON `attributes`.
+    """
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspace.id"), index=True, nullable=False)
     owner_user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False)
@@ -40,6 +47,7 @@ class Item(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    # Ниже — основные связи: локация, теги, медиа, история изменений и batch-операции.
     workspace = relationship("Workspace", back_populates="items")
     location = relationship("Location", back_populates="items")
     tags = relationship("ItemTag", back_populates="item")

@@ -1,3 +1,5 @@
+"""ORM-модели медиа, связей item-media и истории загрузок."""
+
 from datetime import datetime
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Numeric, func, Enum, JSON
@@ -8,6 +10,7 @@ from app.models.enums import MediaType, UploadStatus
 
 
 class Media(Base):
+    """Физически загруженный файл: фото, видео или документ."""
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspace.id"), nullable=False)
     owner_user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False)
@@ -28,6 +31,7 @@ class Media(Base):
 
 class ItemMedia(Base):
     __tablename__ = "item_media"
+    """Связь многие-ко-многим между предметами и медиа."""
 
     item_id: Mapped[int] = mapped_column(ForeignKey("item.id"), primary_key=True)
     media_id: Mapped[int] = mapped_column(ForeignKey("media.id"), primary_key=True)
@@ -38,6 +42,11 @@ class ItemMedia(Base):
 
 class MediaUploadHistory(Base):
     __tablename__ = "mediauploadhistory"
+    """Журнал загрузок для UI и аналитики.
+
+    Это read-model вокруг upload/AI-процесса: сюда складывается удобная для
+    клиента выжимка, чтобы не собирать список из множества таблиц на лету.
+    """
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     media_id: Mapped[int | None] = mapped_column(ForeignKey("media.id"), nullable=True)

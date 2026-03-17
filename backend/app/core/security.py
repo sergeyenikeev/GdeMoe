@@ -1,3 +1,5 @@
+"""Утилиты безопасности: сейчас в основном работа с JWT."""
+
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -7,6 +9,7 @@ from app.core.config import settings
 
 
 def create_access_token(subject: str | int, expires_delta: timedelta | None = None) -> str:
+    """Создаёт JWT access token для пользователя или другого субъекта."""
     if expires_delta is None:
         expires_delta = timedelta(minutes=settings.jwt_access_token_expires_minutes)
     expire = datetime.now(timezone.utc) + expires_delta

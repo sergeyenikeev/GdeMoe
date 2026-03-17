@@ -1,3 +1,5 @@
+"""ORM-модели пользователя и workspace."""
+
 from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, func, Enum
@@ -8,6 +10,7 @@ from app.models.enums import Scope
 
 
 class User(Base):
+    """Пользователь системы."""
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -20,6 +23,7 @@ class User(Base):
 
 
 class Workspace(Base):
+    """Логическое пространство данных пользователя или группы."""
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     scope: Mapped[Scope] = mapped_column(

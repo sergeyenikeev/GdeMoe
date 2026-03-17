@@ -1,3 +1,5 @@
+"""Связи между предметами, заметки и история изменений."""
+
 from datetime import datetime
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, JSON, func
@@ -8,6 +10,7 @@ from app.db.base_class import Base
 
 class ItemRelation(Base):
     __tablename__ = "item_relations"
+    """Связь родитель -> дочерний предмет."""
 
     parent_item_id: Mapped[int] = mapped_column(ForeignKey("item.id"), primary_key=True)
     child_item_id: Mapped[int] = mapped_column(ForeignKey("item.id"), primary_key=True)
@@ -17,6 +20,7 @@ class ItemRelation(Base):
 
 
 class ItemNote(Base):
+    """Пользовательская заметка по предмету."""
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("item.id"), nullable=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False)
@@ -28,6 +32,7 @@ class ItemNote(Base):
 
 
 class ItemHistory(Base):
+    """История изменений карточки предмета."""
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("item.id"), nullable=False)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"))

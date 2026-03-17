@@ -1,3 +1,5 @@
+"""Импорт внешних данных: карточки товара и чеков."""
+
 import uuid
 from pathlib import Path
 from datetime import datetime
@@ -21,6 +23,7 @@ router = APIRouter(prefix="/imports", tags=["imports"])
 
 @router.post("/product-link", response_model=ProductImportResponse)
 async def import_product_link(payload: ProductImportRequest):
+    """Пробует вытащить карточку товара с публичной страницы."""
     data = await fetch_public_product(str(payload.url))
     if not data:
         raise HTTPException(status_code=400, detail="Не удалось вытащить данные со страницы товара")
@@ -33,6 +36,11 @@ async def import_receipt(
     workspace_id: int = Form(2),
     scope: str = Form("private"),
 ):
+    """Сохраняет файл чека и делает упрощённый парсинг текста.
+
+    Это не полноценный OCR-конвейер, а лёгкий best-effort сценарий для PDF и
+    текстовых чеков, чтобы пользователь получил хотя бы черновик данных.
+    """
     content = await file.read()
     ext = Path(file.filename or "").suffix.lower() or ".bin"
     receipt_id = str(uuid.uuid4())
@@ -55,6 +63,7 @@ async def import_receipt(
             text = ""
 
     def _parse_receipt_text(raw: str):
+        """Вытаскивает магазин, дату, сумму и позиции из сырого текста чека."""
         lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
         note = None
         if lines and lines[0].lower().startswith("кассовый чек"):
@@ -110,6 +119,8 @@ async def import_receipt(
     elif vendor:
         note = f"{note or ''} {vendor}".strip()
 
+    # Пока чек не создаёт полноценную запись Media, поэтому возвращаем
+    # технический идентификатор сохранённого файла и поясняющую заметку.
     file_url = f"/api/v1/media/file/{receipt_id}"
     return ReceiptImportResponse(
         receipt_id=receipt_id,

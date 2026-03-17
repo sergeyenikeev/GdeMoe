@@ -1,7 +1,10 @@
+"""Справочные enum-значения, используемые в ORM и API."""
+
 import enum
 
 
 class ItemStatus(str, enum.Enum):
+    """Состояние предмета."""
     NEW = "new"
     OK = "ok"
     BROKEN = "broken"
@@ -15,6 +18,7 @@ class ItemStatus(str, enum.Enum):
 
 
 class LocationKind(str, enum.Enum):
+    """Тип узла в дереве локаций."""
     HOME = "home"
     FLAT = "flat"
     ROOM = "room"
@@ -26,23 +30,27 @@ class LocationKind(str, enum.Enum):
 
 
 class Scope(str, enum.Enum):
+    """Область видимости данных."""
     PRIVATE = "private"
     PUBLIC = "public"
     GROUP = "group"
 
 
 class TodoStatus(str, enum.Enum):
+    """Статус задачи."""
     OPEN = "open"
     DONE = "done"
 
 
 class MediaType(str, enum.Enum):
+    """Тип загруженного медиа."""
     PHOTO = "photo"
     VIDEO = "video"
     DOCUMENT = "document"
 
 
 class UploadStatus(str, enum.Enum):
+    """Статус процесса загрузки файла."""
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     SUCCESS = "success"
@@ -50,6 +58,7 @@ class UploadStatus(str, enum.Enum):
 
 
 class AIDetectionStatus(str, enum.Enum):
+    """Статус AI-анализа."""
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     DONE = "done"
@@ -57,12 +66,14 @@ class AIDetectionStatus(str, enum.Enum):
 
 
 class AIDetectionDecision(str, enum.Enum):
+    """Решение по найденному объекту."""
     PENDING = "pending"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
 
 
 class AIDetectionReviewAction(str, enum.Enum):
+    """Тип действия пользователя в AI Review."""
     ACCEPT = "accept"
     REJECT = "reject"
     LINK = "link_existing"
