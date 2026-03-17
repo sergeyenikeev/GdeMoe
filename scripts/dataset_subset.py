@@ -1,8 +1,14 @@
-"""
-Utility to extract a small, license-aware subset from Open Images or COCO
-and map source classes to project classes.
+"""Сборка небольшого, лицензированно-прозрачного подмножества датасета.
 
-Example (COCO):
+Скрипт нужен на раннем этапе, когда не хочется сразу тащить весь COCO или
+Open Images в эксперимент. Он:
+
+- ограничивает число примеров на класс;
+- отображает исходные классы в проектные классы;
+- сохраняет информацию о лицензии и источнике;
+- при необходимости копирует сами изображения.
+
+Пример (COCO):
   python scripts/dataset_subset.py \
     --dataset coco \
     --split train \
@@ -11,7 +17,7 @@ Example (COCO):
     --out-dir /tmp/ds_subset \
     --limit-per-class 500
 
-Example (Open Images):
+Пример (Open Images):
   python scripts/dataset_subset.py \
     --dataset openimages \
     --split train \
@@ -20,12 +26,6 @@ Example (Open Images):
     --openimages-images-file /data/open_images/train-images-boxable-with-rotation.csv \
     --out-dir /tmp/ds_subset \
     --limit-per-class 500
-
-Outputs:
-- manifest CSV with columns: dataset,split,image_id,file_name,mapped_class,original_class,
-  license_name,license_url,width,height,bbox(json),source
-- bbox format: [x1, y1, x2, y2] in absolute pixels
-- optional copied images if --copy-images is set (keeps original file names)
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
-# Project-level target classes
+# Проектные целевые классы, к которым мы сводим разные внешние датасеты.
 TARGET_CLASSES = [
     "item",
     "box",
@@ -51,7 +51,7 @@ TARGET_CLASSES = [
     "background",
 ]
 
-# Mapping: project class -> list of COCO category names
+# Соответствие "класс проекта -> набор похожих COCO-категорий".
 COCO_CLASS_MAP: Dict[str, List[str]] = {
     "box": ["suitcase", "skateboard"],
     "bag": ["handbag", "backpack", "tie", "suitcase"],
@@ -73,7 +73,7 @@ COCO_CLASS_MAP: Dict[str, List[str]] = {
     ],
 }
 
-# Mapping: project class -> list of Open Images human-readable class names
+# Аналогичное соответствие для Open Images по человекочитаемым именам.
 OPENIMAGES_CLASS_MAP: Dict[str, List[str]] = {
     "box": ["Cardboard box", "Packaging that contains food"],
     "bag": ["Backpack", "Handbag", "Suitcase", "Briefcase"],
@@ -95,16 +95,19 @@ OPENIMAGES_CLASS_MAP: Dict[str, List[str]] = {
 
 
 def _ensure_out_dir(path: Path) -> None:
+    """Создаёт выходную директорию."""
     path.mkdir(parents=True, exist_ok=True)
 
 
 def _require_paths_exist(paths: Iterable[Path], context: str) -> None:
+    """Проверяет, что все обязательные пути действительно существуют."""
     missing = [str(p) for p in paths if p and not p.exists()]
     if missing:
         raise SystemExit(f"[error] {context}: missing paths -> {', '.join(missing)}")
 
 
 def _write_manifest(out_path: Path, rows: List[dict]) -> None:
+    """Пишет общий manifest CSV."""
     _ensure_out_dir(out_path.parent)
     fieldnames = [
         "dataset",
@@ -128,6 +131,7 @@ def _write_manifest(out_path: Path, rows: List[dict]) -> None:
 
 
 def _maybe_copy_image(src_dir: Path, file_name: str, dest_dir: Path) -> None:
+    """При необходимости копирует изображение в выходную папку."""
     src = src_dir / file_name
     dst = dest_dir / file_name
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -145,6 +149,7 @@ def process_coco(
     limit_per_class: int,
     copy_images: bool,
 ) -> None:
+    """Строит подмножество COCO и приводит его к проектным классам."""
     _require_paths_exist([annotations_path, images_dir], "COCO input")
     _ensure_out_dir(out_dir)
     data = json.loads(annotations_path.read_text(encoding="utf-8"))
@@ -177,6 +182,7 @@ def process_coco(
         lic_name, lic_url = license_map.get(image.get("license"), ("", ""))
         bbox = ann.get("bbox") or []
         if len(bbox) == 4:
+            # COCO: x, y, width, height -> x1, y1, x2, y2
             x1, y1, w, h = bbox
             bbox = [x1, y1, x1 + w, y1 + h]
         row = {
@@ -204,7 +210,7 @@ def process_coco(
 
 
 def _load_openimages_label_map(class_desc_path: Path) -> Dict[str, str]:
-    """Returns human-readable name -> label code."""
+    """Строит словарь `читаемое имя -> код класса` для Open Images."""
     mapping: Dict[str, str] = {}
     with class_desc_path.open("r", encoding="utf-8") as f:
         reader = csv.reader(f)
@@ -214,10 +220,7 @@ def _load_openimages_label_map(class_desc_path: Path) -> Dict[str, str]:
 
 
 def _load_openimages_image_meta(images_file: Path) -> Dict[str, Tuple[str, str]]:
-    """
-    Returns ImageID -> (license, original_url) if available.
-    Expected columns: ImageID,OriginalURL,...,License
-    """
+    """Возвращает `ImageID -> (license, original_url)` для Open Images."""
     meta: Dict[str, Tuple[str, str]] = {}
     with images_file.open("r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -234,6 +237,7 @@ def process_openimages(
     split: str,
     limit_per_class: int,
 ) -> None:
+    """Строит подмножество Open Images и приводит его к проектным классам."""
     _require_paths_exist(
         [annotations_path, class_descriptions, images_file],
         "OpenImages input",
@@ -286,7 +290,7 @@ def process_openimages(
             }
             rows.append(manifest_row)
             per_class_counter[mapped] += 1
-            # stop early if all classes reached limit
+            # Если для всех проектных классов лимит уже набран, можно завершать раньше.
             if all(per_class_counter[c] >= limit_per_class for c in label_to_project.values()):
                 break
 

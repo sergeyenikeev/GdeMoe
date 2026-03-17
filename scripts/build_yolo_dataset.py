@@ -1,7 +1,13 @@
-"""
-Build a unified YOLO dataset from manifest CSV files.
+"""Сборка единого YOLO-датасета из manifest CSV.
 
-Example:
+Скрипт берёт уже нормализованные manifest-файлы, подтягивает исходные картинки
+из разных датасетов и раскладывает всё в структуру, которую понимает Ultralytics:
+
+- `images/train`, `images/val`
+- `labels/train`, `labels/val`
+- `dataset.yaml`
+
+Пример:
   python scripts/build_yolo_dataset.py ^
     --train-manifest D:/tmp/ds_all/manifest_train.csv ^
     --val-manifest D:/tmp/ds_all/manifest_val.csv ^
@@ -27,6 +33,7 @@ from typing import Dict, Iterable, List, Tuple
 
 
 def _safe_float(value: str) -> float:
+    """Безопасно приводит строку к float, иначе возвращает 0.0."""
     try:
         return float(value)
     except Exception:
@@ -34,6 +41,7 @@ def _safe_float(value: str) -> float:
 
 
 def _load_manifest(path: Path) -> List[dict]:
+    """Читает manifest CSV целиком в память."""
     rows: List[dict] = []
     with path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
@@ -43,10 +51,16 @@ def _load_manifest(path: Path) -> List[dict]:
 
 
 def _ensure_dir(path: Path) -> None:
+    """Создаёт директорию, если её ещё нет."""
     path.mkdir(parents=True, exist_ok=True)
 
 
 def _link_or_copy(src: Path, dst: Path, mode: str) -> None:
+    """Либо делает hardlink, либо копирует файл.
+
+    `link` удобен для экономии места. Если hardlink не получился,
+    скрипт тихо откатывается к обычному копированию.
+    """
     if dst.exists():
         return
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -60,6 +74,7 @@ def _link_or_copy(src: Path, dst: Path, mode: str) -> None:
 
 
 def _image_root_for(row: dict, paths: dict) -> Path | None:
+    """Определяет корневую папку с исходными изображениями по dataset/split."""
     dataset = row["dataset"]
     split = row["split"]
     if dataset == "coco":
@@ -74,6 +89,12 @@ def _image_root_for(row: dict, paths: dict) -> Path | None:
 
 
 def _group_rows(rows: Iterable[dict]) -> Dict[Tuple[str, str, str, str], List[dict]]:
+    """Группирует manifest-строки по изображению.
+
+    В manifest одна картинка может встречаться много раз — по одному bbox
+    на каждую аннотацию. Для YOLO нам нужно сначала собрать их обратно в
+    единый набор строк на изображение, а уже потом записать один label-файл.
+    """
     grouped: Dict[Tuple[str, str, str, str], List[dict]] = {}
     for row in rows:
         key = (row["dataset"], row["split"], row["image_id"], row["file_name"])
@@ -86,6 +107,11 @@ def _write_labels(
     rows: List[dict],
     class_to_idx: Dict[str, int],
 ) -> None:
+    """Пишет YOLO label-файл из списка manifest-строк.
+
+    В manifest bbox хранится как абсолютные `x1,y1,x2,y2`, а YOLO ожидает
+    нормализованный формат `class xc yc w h`.
+    """
     lines: List[str] = []
     for row in rows:
         label = row.get("mapped_class", "")
@@ -120,6 +146,7 @@ def build_dataset(
     max_images_per_dataset: int | None,
     seed: int,
 ) -> None:
+    """Собирает train/val директории и пишет `dataset.yaml`."""
     out_images_train = out_dir / "images" / "train"
     out_images_val = out_dir / "images" / "val"
     out_labels_train = out_dir / "labels" / "train"
@@ -154,7 +181,8 @@ def build_dataset(
 
             out_img_dir = out_images_train if split == "train" else out_images_val
             out_lbl_dir = out_labels_train if split == "train" else out_labels_val
-            # avoid collisions by scoping by dataset
+            # Одинаковые имена файлов могут приехать из разных датасетов,
+            # поэтому раскладываем их по подпапкам dataset.
             rel_img_dir = Path(dataset)
             out_img = out_img_dir / rel_img_dir / file_name
             out_lbl = out_lbl_dir / rel_img_dir / f"{Path(file_name).stem}.txt"
@@ -162,7 +190,7 @@ def build_dataset(
             _link_or_copy(src_img, out_img, mode)
             _write_labels(out_lbl, items, class_to_idx)
 
-    # dataset.yaml for Ultralytics
+    # Финальный `dataset.yaml` — входная точка для обучения через Ultralytics.
     yaml_path = out_dir / "dataset.yaml"
     yaml_content = "\n".join(
         [

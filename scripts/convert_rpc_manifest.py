@@ -1,7 +1,10 @@
-"""
-Convert RPC (Retail Product Checkout) COCO-style annotations to manifest CSV.
+"""Конвертация RPC в manifest CSV.
 
-Example:
+RPC поставляется в COCO-подобном JSON-формате. Скрипт переводит его в общий
+внутренний manifest, который дальше используется фильтрами, merge-скриптами
+и сборкой единого YOLO-датасета.
+
+Пример:
   python scripts/convert_rpc_manifest.py ^
     --annotations D:/datasets/rpc/instances_train2019.json ^
     --images-dir D:/datasets/rpc/train2019 ^
@@ -35,6 +38,7 @@ FIELDNAMES = [
 
 
 def write_manifest(out_path: Path, rows: List[dict]) -> None:
+    """Записывает итоговый manifest в CSV."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
@@ -52,12 +56,15 @@ def convert_rpc(
     limit: int | None,
     check_files: bool,
 ) -> None:
+    """Преобразует JSON-аннотации RPC в строки manifest CSV."""
     if not annotations_path.exists():
         raise SystemExit(f"[error] annotations not found: {annotations_path}")
     if not images_dir.exists():
         raise SystemExit(f"[error] images dir not found: {images_dir}")
 
     data = json.loads(annotations_path.read_text(encoding="utf-8"))
+    # COCO-подобная структура позволяет быстро собрать словари по изображениям,
+    # категориям и лицензиям, чтобы дальше не искать их линейно для каждой bbox.
     images_by_id = {img["id"]: img for img in data.get("images", [])}
     cat_id_to_name = {cat["id"]: cat["name"] for cat in data.get("categories", [])}
     license_map = {lic["id"]: (lic.get("name") or "", lic.get("url") or "") for lic in data.get("licenses", [])}
@@ -77,6 +84,8 @@ def convert_rpc(
             continue
         bbox = ann.get("bbox") or []
         if len(bbox) == 4:
+            # В COCO bbox хранится как x, y, width, height.
+            # Внутренний manifest использует x1, y1, x2, y2.
             x1, y1, w, h = bbox
             bbox = [x1, y1, x1 + w, y1 + h]
         lic_name, lic_url = license_map.get(image.get("license"), ("", ""))

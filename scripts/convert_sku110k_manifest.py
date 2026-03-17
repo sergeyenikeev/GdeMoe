@@ -1,7 +1,9 @@
-"""
-Convert SKU110K CSV annotations to manifest CSV.
+"""Конвертация SKU110K в manifest CSV.
 
-Example:
+SKU110K уже хранит аннотации в CSV, поэтому здесь логика проще: читаем строки,
+нормализуем bbox и переносим всё в единый формат manifest.
+
+Пример:
   python scripts/convert_sku110k_manifest.py ^
     --annotations D:/datasets/sku110k/annotations/annotations_train.csv ^
     --images-dir D:/datasets/sku110k/images ^
@@ -35,6 +37,7 @@ FIELDNAMES = [
 
 
 def write_manifest(out_path: Path, rows: List[dict]) -> None:
+    """Записывает итоговый manifest в CSV."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
@@ -52,6 +55,7 @@ def convert_sku110k(
     limit: int | None,
     check_files: bool,
 ) -> None:
+    """Преобразует CSV-аннотации SKU110K в единый manifest."""
     if not annotations_path.exists():
         raise SystemExit(f"[error] annotations not found: {annotations_path}")
     if not images_dir.exists():
@@ -69,6 +73,7 @@ def convert_sku110k(
             image_name, x1, y1, x2, y2, cls, width, height = row
             if check_files and not (images_dir / image_name).exists():
                 continue
+            # SKU110K уже хранит bbox в абсолютных координатах x1,y1,x2,y2.
             bbox = [float(x1), float(y1), float(x2), float(y2)]
             rows.append(
                 {

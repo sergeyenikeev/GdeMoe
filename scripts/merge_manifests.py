@@ -1,7 +1,9 @@
-"""
-Simple utility to merge multiple manifest CSV files (same columns) into one.
+"""Объединение нескольких manifest CSV в один.
 
-Example:
+Скрипт специально очень простой: он не пытается дедуплицировать строки,
+а только проверяет, что у всех файлов одинаковый заголовок.
+
+Пример:
   python scripts/merge_manifests.py \
     --inputs D:/tmp/ds_subset/manifest_coco_train.csv D:/tmp/ds_subset_val/manifest_coco_val.csv \
     --out D:/tmp/ds_subset_all/manifest_all.csv
@@ -16,6 +18,7 @@ from typing import List
 
 
 def merge_manifests(inputs: List[Path], out_path: Path) -> None:
+    """Склеивает несколько manifest CSV с одинаковой схемой."""
     if not inputs:
         raise SystemExit("No input manifests provided")
     rows = []
@@ -28,6 +31,8 @@ def merge_manifests(inputs: List[Path], out_path: Path) -> None:
             if header is None:
                 header = reader.fieldnames
             elif reader.fieldnames != header:
+                # Если колонки не совпали, безопаснее упасть сразу,
+                # чем тихо получить битый общий manifest.
                 raise SystemExit(f"Header mismatch in {path}")
             rows.extend(reader)
     out_path.parent.mkdir(parents=True, exist_ok=True)

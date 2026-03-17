@@ -1,7 +1,10 @@
-"""
-Train a YOLO detector using Ultralytics on the unified dataset.yaml.
+"""Обучение YOLO через Ultralytics на готовом `dataset.yaml`.
 
-Example:
+Скрипт нужен как тонкая обёртка над `ultralytics.YOLO.train`, чтобы запуск
+обучения был воспроизводимым и не требовал каждый раз вспоминать набор
+основных аргументов.
+
+Пример:
   python scripts/train_yolo.py ^
     --data D:/tmp/yolo_all/dataset.yaml ^
     --model yolov8n.pt ^
@@ -37,6 +40,8 @@ def main() -> None:
     except ImportError as exc:  # noqa: BLE001
         raise SystemExit("ultralytics not installed. Run: pip install ultralytics") from exc
 
+    # На вход можно подать как базовые веса (`yolov8n.pt`), так и
+    # ранее дообученный чекпоинт. Дальше Ultralytics сам продолжит обучение.
     model = YOLO(args.model)
     results = model.train(
         data=str(args.data),
@@ -50,6 +55,8 @@ def main() -> None:
         patience=args.patience,
     )
     if args.export:
+        # Экспорт в ONNX полезен, если модель потом планируется запускать
+        # вне python-окружения или через отдельный inference runtime.
         model.export(format="onnx", imgsz=args.imgsz)
     return results
 

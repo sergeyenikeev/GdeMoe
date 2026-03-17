@@ -1,7 +1,10 @@
-"""
-Convert a YOLO-format dataset (images + labels) to manifest CSV.
+"""Конвертация датасета в формате YOLO в manifest CSV.
 
-Example (GroZi):
+Скрипт полезен для датасетов, где уже есть `.txt` label-файлы рядом с
+изображениями. Он восстанавливает абсолютные bbox и переносит всё в общий
+внутренний manifest-формат.
+
+Пример (GroZi):
   python scripts/convert_yolo_manifest.py ^
     --images-dir D:/datasets/grozi/images ^
     --labels-dir D:/datasets/grozi/labels ^
@@ -38,6 +41,7 @@ FIELDNAMES = [
 
 
 def write_manifest(out_path: Path, rows: List[dict]) -> None:
+    """Записывает итоговый manifest в CSV."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
@@ -46,6 +50,7 @@ def write_manifest(out_path: Path, rows: List[dict]) -> None:
 
 
 def _get_png_size(f) -> Optional[Tuple[int, int]]:
+    """Читает размер PNG без внешних зависимостей."""
     f.seek(0)
     sig = f.read(8)
     if sig != b"\x89PNG\r\n\x1a\n":
@@ -56,6 +61,7 @@ def _get_png_size(f) -> Optional[Tuple[int, int]]:
 
 
 def _get_jpeg_size(f) -> Optional[Tuple[int, int]]:
+    """Читает размер JPEG без PIL/OpenCV."""
     f.seek(0)
     if f.read(2) != b"\xff\xd8":
         return None
@@ -79,6 +85,7 @@ def _get_jpeg_size(f) -> Optional[Tuple[int, int]]:
 
 
 def get_image_size(path: Path) -> Tuple[int, int]:
+    """Определяет размер изображения по заголовку файла."""
     with path.open("rb") as f:
         size = _get_png_size(f)
         if size:
@@ -90,6 +97,7 @@ def get_image_size(path: Path) -> Tuple[int, int]:
 
 
 def find_image_file(images_dir: Path, stem: str) -> Optional[Path]:
+    """Ищет картинку по stem с типовыми расширениями."""
     for ext in (".jpg", ".jpeg", ".png"):
         candidate = images_dir / f"{stem}{ext}"
         if candidate.exists():
@@ -107,6 +115,7 @@ def convert_yolo(
     map_all_to: str,
     limit_images: int | None,
 ) -> None:
+    """Преобразует YOLO label-файлы в manifest CSV."""
     if not images_dir.exists():
         raise SystemExit(f"[error] images dir not found: {images_dir}")
     if not labels_dir.exists():
@@ -135,6 +144,8 @@ def convert_yolo(
                 continue
             cls_id = parts[0]
             xc, yc, w, h = map(float, parts[1:5])
+            # YOLO хранит bbox в нормализованном формате xc,yc,w,h.
+            # Для manifest переводим их обратно в абсолютные x1,y1,x2,y2.
             x1 = (xc - w / 2.0) * width
             y1 = (yc - h / 2.0) * height
             x2 = (xc + w / 2.0) * width

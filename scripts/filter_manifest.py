@@ -1,7 +1,10 @@
-"""
-Filter a manifest CSV by dataset/class and optionally cap rows per class.
+"""Фильтрация manifest CSV по датасетам, классам и лимитам.
 
-Example:
+Полезен, когда нужно быстро собрать облегчённый train/val-файл для
+эксперимента: исключить конкретные источники, ограничить размер классов
+или просто урезать общий объём строк.
+
+Пример:
   python scripts/filter_manifest.py ^
     --input C:/tmp/ds_all/manifest_train.csv ^
     --out C:/tmp/ds_all/manifest_ft_train.csv ^
@@ -20,6 +23,7 @@ from typing import Dict, List, Optional
 
 
 def _parse_list(value: Optional[str]) -> List[str]:
+    """Разбирает аргументы вида `a,b,c` в список строк."""
     if not value:
         return []
     return [item.strip() for item in value.split(",") if item.strip()]
@@ -37,6 +41,7 @@ def filter_manifest(
     shuffle: bool,
     max_rows: Optional[int],
 ) -> None:
+    """Фильтрует manifest и сохраняет новый CSV."""
     if not input_path.exists():
         raise SystemExit(f"[error] manifest not found: {input_path}")
 
@@ -62,6 +67,8 @@ def filter_manifest(
         rnd.shuffle(rows)
 
     if max_per_class is not None:
+        # Сначала раскладываем строки по проектным классам,
+        # затем режем каждый бакет до заданного лимита.
         buckets: Dict[str, List[dict]] = {}
         for row in rows:
             buckets.setdefault(row.get("mapped_class", ""), []).append(row)
