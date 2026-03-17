@@ -10,7 +10,11 @@ from app.models.enums import Scope
 
 
 class User(Base):
-    """Пользователь системы."""
+    """Пользователь системы.
+
+    Представляет зарегистрированного пользователя приложения.
+    Содержит базовую информацию для аутентификации и профиля.
+    """
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -23,7 +27,11 @@ class User(Base):
 
 
 class Workspace(Base):
-    """Логическое пространство данных пользователя или группы."""
+    """Логическое пространство данных пользователя или группы.
+
+    Workspace объединяет предметы, локации и группы в изолированное пространство.
+    Каждый пользователь имеет хотя бы один workspace, но может быть членом нескольких.
+    """
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     scope: Mapped[Scope] = mapped_column(

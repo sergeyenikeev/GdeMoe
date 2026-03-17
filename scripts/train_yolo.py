@@ -21,6 +21,12 @@ from pathlib import Path
 
 
 def main() -> None:
+    """Главная функция для обучения YOLO-модели.
+
+    Парсит аргументы командной строки, инициализирует модель YOLO
+    через Ultralytics и запускает процесс обучения на предоставленном датасете.
+    После обучения опционально экспортирует модель в ONNX.
+    """
     parser = argparse.ArgumentParser(description="Train YOLO with Ultralytics.")
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--model", type=str, default="yolov8n.pt")

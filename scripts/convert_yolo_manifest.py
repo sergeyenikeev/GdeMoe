@@ -41,7 +41,15 @@ FIELDNAMES = [
 
 
 def write_manifest(out_path: Path, rows: List[dict]) -> None:
-    """Записывает итоговый manifest в CSV."""
+    """Записывает список строк manifest в CSV-файл.
+
+    Создаёт директорию для файла, если она не существует,
+    и записывает данные в формате CSV с заголовками.
+
+    Args:
+        out_path: Путь к выходному CSV-файлу.
+        rows: Список словарей с данными строк manifest.
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
@@ -50,7 +58,17 @@ def write_manifest(out_path: Path, rows: List[dict]) -> None:
 
 
 def _get_png_size(f) -> Optional[Tuple[int, int]]:
-    """Читает размер PNG без внешних зависимостей."""
+    """Читает размер PNG-изображения из заголовка файла.
+
+    Анализирует бинарный заголовок PNG для извлечения ширины и высоты
+    без использования внешних библиотек.
+
+    Args:
+        f: Открытый файл в бинарном режиме.
+
+    Returns:
+        Кортеж (ширина, высота) или None, если файл не PNG.
+    """
     f.seek(0)
     sig = f.read(8)
     if sig != b"\x89PNG\r\n\x1a\n":
@@ -61,7 +79,17 @@ def _get_png_size(f) -> Optional[Tuple[int, int]]:
 
 
 def _get_jpeg_size(f) -> Optional[Tuple[int, int]]:
-    """Читает размер JPEG без PIL/OpenCV."""
+    """Читает размер JPEG-изображения из заголовка файла.
+
+    Парсит маркеры JPEG для нахождения сегмента с размером
+    без использования PIL или OpenCV.
+
+    Args:
+        f: Открытый файл в бинарном режиме.
+
+    Returns:
+        Кортеж (ширина, высота) или None, если файл не JPEG.
+    """
     f.seek(0)
     if f.read(2) != b"\xff\xd8":
         return None
@@ -85,7 +113,20 @@ def _get_jpeg_size(f) -> Optional[Tuple[int, int]]:
 
 
 def get_image_size(path: Path) -> Tuple[int, int]:
-    """Определяет размер изображения по заголовку файла."""
+    """Определяет размер изображения по заголовку файла.
+
+    Поддерживает PNG и JPEG форматы. Читает бинарный заголовок
+    для извлечения ширины и высоты.
+
+    Args:
+        path: Путь к изображению.
+
+    Returns:
+        Кортеж (ширина, высота).
+
+    Raises:
+        ValueError: Если формат не поддерживается.
+    """
     with path.open("rb") as f:
         size = _get_png_size(f)
         if size:
@@ -97,7 +138,18 @@ def get_image_size(path: Path) -> Tuple[int, int]:
 
 
 def find_image_file(images_dir: Path, stem: str) -> Optional[Path]:
-    """Ищет картинку по stem с типовыми расширениями."""
+    """Ищет файл изображения по базовому имени с типовыми расширениями.
+
+    Проверяет наличие файла с расширениями .jpg, .jpeg, .png
+    в указанной директории.
+
+    Args:
+        images_dir: Директория с изображениями.
+        stem: Базовое имя файла без расширения.
+
+    Returns:
+        Путь к найденному изображению или None.
+    """
     for ext in (".jpg", ".jpeg", ".png"):
         candidate = images_dir / f"{stem}{ext}"
         if candidate.exists():
@@ -115,7 +167,22 @@ def convert_yolo(
     map_all_to: str,
     limit_images: int | None,
 ) -> None:
-    """Преобразует YOLO label-файлы в manifest CSV."""
+    """Преобразует YOLO label-файлы в manifest CSV.
+
+    Читает .txt файлы с YOLO-аннотациями, находит соответствующие изображения,
+    извлекает размеры и преобразует нормализованные bbox в абсолютные координаты.
+    Все классы маппятся в указанный mapped_class. Результат записывается в CSV.
+
+    Args:
+        images_dir: Директория с изображениями.
+        labels_dir: Директория с label-файлами (.txt).
+        out_path: Путь к выходному manifest CSV.
+        split: Название сплита (train/val).
+        dataset: Название датасета.
+        source: Источник данных.
+        map_all_to: Класс, в который маппятся все аннотации.
+        limit_images: Ограничение на количество обрабатываемых изображений.
+    """
     if not images_dir.exists():
         raise SystemExit(f"[error] images dir not found: {images_dir}")
     if not labels_dir.exists():
@@ -174,6 +241,11 @@ def convert_yolo(
 
 
 def main() -> None:
+    """Главная функция скрипта для конвертации YOLO в manifest.
+
+    Парсит аргументы командной строки и вызывает convert_yolo
+    для преобразования датасета.
+    """
     parser = argparse.ArgumentParser(description="Convert YOLO dataset to manifest CSV.")
     parser.add_argument("--images-dir", type=Path, required=True)
     parser.add_argument("--labels-dir", type=Path, required=True)

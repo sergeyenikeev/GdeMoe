@@ -18,7 +18,21 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/login", response_model=Token)
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> Token:
-    """Проверяет email/password и возвращает bearer token."""
+    """Аутентифицирует пользователя и возвращает JWT-токен.
+
+    Проверяет предоставленные email и пароль. Если данные корректны,
+    генерирует access-токен с временем жизни 7 дней.
+
+    Args:
+        payload: Данные для входа (email и пароль).
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Объект Token с access-токеном и временем истечения.
+
+    Raises:
+        HTTPException: Если email или пароль неверны.
+    """
     res = await db.execute(select(User).where(User.email == payload.email))
     user = res.scalar_one_or_none()
     if not user or not pwd_context.verify(payload.password, user.hashed_password):
@@ -31,7 +45,22 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
 
 @router.post("/register", response_model=Token)
 async def register(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> Token:
-    """Создаёт пользователя и сразу выдаёт токен для входа."""
+    """Регистрирует нового пользователя и возвращает JWT-токен.
+
+    Создаёт нового пользователя с предоставленным email и паролем.
+    Если пользователь с таким email уже существует, возвращает ошибку.
+    После успешной регистрации сразу выдаёт токен для входа.
+
+    Args:
+        payload: Данные для регистрации (email и пароль).
+        db: Асинхронная сессия базы данных.
+
+    Returns:
+        Объект Token с access-токеном.
+
+    Raises:
+        HTTPException: Если пользователь с таким email уже существует.
+    """
     res = await db.execute(select(User).where(User.email == payload.email))
     if res.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="User already exists")
