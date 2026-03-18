@@ -27,7 +27,14 @@ def _load_clip():
 
 
 def image_embedding(pil_image) -> np.ndarray:
-    """Возвращает нормализованный embedding изображения."""
+    """Возвращает нормализованный эмбеддинг изображения.
+
+    Args:
+        pil_image (Image.Image): Изображение PIL в любом формате.
+
+    Returns:
+        np.ndarray: Вектор из float32 длины 512, нормализованный по L2.
+    """
     import torch
 
     model, preprocess, _, device = _load_clip()
@@ -39,7 +46,14 @@ def image_embedding(pil_image) -> np.ndarray:
 
 
 def text_embedding(text: str) -> np.ndarray:
-    """Возвращает нормализованный embedding текстовой строки."""
+    """Возвращает нормализованный эмбеддинг текстовой строки.
+
+    Args:
+        text (str): Исходная строка.
+
+    Returns:
+        np.ndarray: Вектор из float32 длины 512, нормализованный по L2.
+    """
     import torch
 
     model, _, tokenizer, device = _load_clip()

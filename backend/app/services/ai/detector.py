@@ -17,7 +17,13 @@ logger = logging.getLogger(__name__)
 
 
 class DetectedObject:
-    """Нормализованное представление одного найденного объекта."""
+    """Нормализованное представление одного найденного объекта.
+
+    Атрибуты:
+        bbox (tuple): координаты (x1, y1, x2, y2) рамки объекта.
+        label (str): текстовая метка класса.
+        score (float): доверие модели к детекции.
+    """
     def __init__(self, bbox: Tuple[float, float, float, float], label: str, score: float):
         self.bbox = bbox  # (x1, y1, x2, y2)
         self.label = label
@@ -90,7 +96,18 @@ def _fallback_detect(image_array: np.ndarray) -> List[DetectedObject]:
 
 
 def detect_objects(image_array: np.ndarray, conf: float = 0.25) -> List[DetectedObject]:
-    """Основная точка входа детектора с автоматическим фолбэком."""
+    """Основная точка входа детектора с автоматическим фолбэком.
+
+    Пытается использовать YOLO, но если модель не доступна или ничего не нашла,
+    возвращает результаты упрощённого детектора.
+
+    Args:
+        image_array (np.ndarray): RGB-изображение.
+        conf (float): Порог уверенности для YOLO (0.0-1.0).
+
+    Returns:
+        List[DetectedObject]: Найденные объекты или fallback-детекция.
+    """
     try:
         model = _load_model()
     except Exception as exc:  # noqa: BLE001
