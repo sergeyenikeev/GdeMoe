@@ -39,7 +39,17 @@ HINT_CANDIDATE_SCORE = 0.95
 
 
 def _resolve_media_path(media_path: str) -> Path:
-    """Преобразует путь из БД в реальный путь на диске."""
+    """Преобразует путь из БД в реальный путь на диске.
+
+    Определяет базовую директорию (public или private) на основе префикса пути
+    и возвращает полный путь к файлу.
+
+    Args:
+        media_path (str): Путь к медиа из базы данных.
+
+    Returns:
+        Path: Полный путь к файлу на диске.
+    """
     rel_path = Path(media_path)
     if rel_path.is_absolute():
         return rel_path
@@ -55,7 +65,21 @@ async def _load_item_media_embeddings(
     location_id: int | None,
     max_items: int,
 ) -> list[tuple[int, np.ndarray]]:
-    """Собирает эмбеддинги по последним фото предметов в workspace."""
+    """Собирает эмбеддинги по последним фото предметов в workspace.
+
+    Загружает последние фотографии предметов из указанного workspace,
+    вычисляет их эмбеддинги и возвращает список пар (item_id, embedding).
+    Ограничивает количество предметов для производительности.
+
+    Args:
+        db (AsyncSession): Асинхронная сессия базы данных.
+        workspace_id (int): ID рабочего пространства.
+        location_id (int | None): ID локации для фильтрации предметов.
+        max_items (int): Максимальное количество предметов.
+
+    Returns:
+        list[tuple[int, np.ndarray]]: Список пар (item_id, embedding).
+    """
     stmt = (
         select(Item.id, Media.path, Media.mime_type)
         .join(ItemMedia, ItemMedia.item_id == Item.id)
@@ -95,7 +119,19 @@ def _top_k_candidates(
     item_embeddings: Iterable[tuple[int, np.ndarray]],
     top_k: int,
 ) -> list[tuple[int, float]]:
-    """Считает косинусную близость и оставляет лучшие совпадения."""
+    """Считает косинусную близость и оставляет лучшие совпадения.
+
+    Вычисляет косинусное расстояние между query-эмбеддингом и эмбеддингами предметов,
+    нормализует scores в диапазон [0,1] и возвращает топ-k кандидатов.
+
+    Args:
+        query_embedding (np.ndarray): Эмбеддинг запроса (объекта из изображения).
+        item_embeddings (Iterable[tuple[int, np.ndarray]]): Итерируемый объект с парами (item_id, embedding).
+        top_k (int): Количество лучших кандидатов для возврата.
+
+    Returns:
+        list[tuple[int, float]]: Список пар (item_id, score) отсортированный по убыванию score.
+    """
     q = query_embedding.astype("float32")
     q_norm = np.linalg.norm(q) or 1.0
     q = q / q_norm
@@ -112,7 +148,19 @@ async def _resolve_hint_item_ids(
     workspace_id: int,
     hint_item_ids: list[int] | None,
 ) -> list[int]:
-    """Оставляет только те `hint_item_ids`, которые реально есть в workspace."""
+    """Оставляет только те `hint_item_ids`, которые реально есть в workspace.
+
+    Фильтрует список hint_item_ids, оставляя только предметы,
+    принадлежащие указанному workspace.
+
+    Args:
+        db (AsyncSession): Асинхронная сессия базы данных.
+        workspace_id (int): ID рабочего пространства.
+        hint_item_ids (list[int] | None): Список ID предметов для проверки.
+
+    Returns:
+        list[int]: Список валидных ID предметов из hint_item_ids.
+    """
     if not hint_item_ids:
         return []
     stmt = select(Item.id).where(
@@ -123,7 +171,25 @@ async def _resolve_hint_item_ids(
 
 
 async def analyze_media(media_id: int, db: AsyncSession, hint_item_ids: list[int] | None = None) -> AIDetection:
-    """Анализирует одно изображение и создаёт запись `AIDetection`."""
+    """Анализирует одно изображение и создаёт запись `AIDetection`.
+
+    Выполняет полный пайплайн анализа: детекцию объектов через YOLO,
+    вычисление эмбеддингов через CLIP, поиск кандидатов среди предметов
+    по хэшу, hint'ам и схожести эмбеддингов. Создаёт объекты детекции
+    и кандидатов привязки.
+
+    Args:
+        media_id (int): ID медиафайла для анализа.
+        db (AsyncSession): Асинхронная сессия базы данных.
+        hint_item_ids (list[int] | None): Список ID предметов для приоритизации в кандидатах.
+
+    Returns:
+        AIDetection: Созданная запись детекции с результатами анализа.
+
+    Raises:
+        ValueError: Если медиа не найдено.
+        FileNotFoundError: Если файл медиа не существует на диске.
+    """
     media = await db.get(Media, media_id)
     if not media:
         raise ValueError("Media not found")

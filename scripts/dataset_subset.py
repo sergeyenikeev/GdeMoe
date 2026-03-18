@@ -280,7 +280,18 @@ def process_coco(
 
 
 def _load_openimages_label_map(class_desc_path: Path) -> Dict[str, str]:
-    """Строит словарь `читаемое имя -> код класса` для Open Images."""
+    """Строит словарь `читаемое имя -> код класса` для Open Images.
+
+    Args:
+        class_desc_path (Path): Путь к CSV-файлу с описаниями классов Open Images.
+
+    Returns:
+        Dict[str, str]: Словарь соответствия имён классов их кодам.
+
+    Raises:
+        FileNotFoundError: Если файл не найден.
+        UnicodeDecodeError: При ошибках чтения файла.
+    """
     mapping: Dict[str, str] = {}
     with class_desc_path.open("r", encoding="utf-8") as f:
         reader = csv.reader(f)
@@ -290,7 +301,18 @@ def _load_openimages_label_map(class_desc_path: Path) -> Dict[str, str]:
 
 
 def _load_openimages_image_meta(images_file: Path) -> Dict[str, Tuple[str, str]]:
-    """Возвращает `ImageID -> (license, original_url)` для Open Images."""
+    """Возвращает `ImageID -> (license, original_url)` для Open Images.
+
+    Args:
+        images_file (Path): Путь к CSV-файлу с метаданными изображений Open Images.
+
+    Returns:
+        Dict[str, Tuple[str, str]]: Словарь с лицензией и URL для каждого ImageID.
+
+    Raises:
+        FileNotFoundError: Если файл не найден.
+        UnicodeDecodeError: При ошибках чтения файла.
+    """
     meta: Dict[str, Tuple[str, str]] = {}
     with images_file.open("r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -307,7 +329,27 @@ def process_openimages(
     split: str,
     limit_per_class: int,
 ) -> None:
-    """Строит подмножество Open Images и приводит его к проектным классам."""
+    """Строит подмножество Open Images и приводит его к проектным классам.
+
+    Загружает CSV с аннотациями Open Images, фильтрует по классам,
+    ограничивает количество примеров на класс, преобразует bbox в абсолютные координаты,
+    маппит классы на проектные и записывает manifest.
+
+    Args:
+        annotations_path (Path): Путь к CSV-файлу с аннотациями bbox Open Images.
+        class_descriptions (Path): Путь к CSV-файлу с описаниями классов.
+        images_file (Path): Путь к CSV-файлу с метаданными изображений.
+        out_dir (Path): Выходная директория для manifest.
+        split (str): Тип сплита ('train', 'val' и т.д.).
+        limit_per_class (int): Максимальное количество примеров на класс.
+
+    Returns:
+        None
+
+    Raises:
+        SystemExit: Если входные файлы не найдены.
+        UnicodeDecodeError: При ошибках чтения CSV.
+    """
     _require_paths_exist(
         [annotations_path, class_descriptions, images_file],
         "OpenImages input",
@@ -370,6 +412,29 @@ def process_openimages(
 
 
 def main() -> None:
+    """Главная функция скрипта для сборки подмножества датасета.
+
+    Парсит аргументы командной строки и вызывает соответствующую функцию
+    обработки (COCO или Open Images) на основе выбранного датасета.
+
+    Аргументы командной строки:
+    - --dataset: Тип датасета ('coco' или 'openimages', обязательно).
+    - --split: Тип сплита (по умолчанию 'train').
+    - --limit-per-class: Максимум примеров на класс (по умолчанию 500).
+    - --out-dir: Выходная директория (обязательно).
+    - --copy-images: Копировать изображения (только для COCO).
+    - --coco-annotations: Путь к JSON COCO (для COCO).
+    - --images-dir: Директория изображений COCO (для COCO).
+    - --openimages-annotations: Путь к CSV аннотаций Open Images.
+    - --openimages-class-descriptions: Путь к описаниям классов Open Images.
+    - --openimages-images-file: Путь к метаданным изображений Open Images.
+
+    Returns:
+        None
+
+    Raises:
+        SystemExit: При ошибках парсинга аргументов или отсутствии обязательных файлов.
+    """
     parser = argparse.ArgumentParser(description="Build a small subset from COCO or Open Images with class mapping.")
     parser.add_argument("--dataset", choices=["coco", "openimages"], required=True)
     parser.add_argument("--split", default="train")

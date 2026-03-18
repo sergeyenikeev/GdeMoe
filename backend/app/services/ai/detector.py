@@ -26,7 +26,14 @@ class DetectedObject:
 
 @lru_cache(maxsize=1)
 def _load_model():
-    """Лениво загружает YOLO и кеширует объект модели."""
+    """Лениво загружает YOLO и кеширует объект модели.
+
+    Пытается загрузить модель YOLOv8 из указанного пути к весам.
+    Если веса не найдены или ultralytics не установлен, возвращает None.
+
+    Returns:
+        YOLO | None: Загруженная модель YOLO или None при ошибке.
+    """
     try:
         from ultralytics import YOLO
     except ImportError as exc:  # noqa: BLE001
@@ -51,7 +58,18 @@ def _load_model():
 
 
 def _fallback_detect(image_array: np.ndarray) -> List[DetectedObject]:
-    """Упрощённый детектор на случай недоступности YOLO."""
+    """Упрощённый детектор на случай недоступности YOLO.
+
+    Использует OpenCV для поиска контуров на изображении.
+    Возвращает bounding box вокруг самого большого контура или
+    весь кадр, если контуры не найдены.
+
+    Args:
+        image_array (np.ndarray): Изображение в формате RGB numpy array.
+
+    Returns:
+        List[DetectedObject]: Список найденных объектов (обычно один).
+    """
     try:
         import cv2
     except Exception:

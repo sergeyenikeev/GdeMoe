@@ -10,7 +10,28 @@ from app.models.enums import MediaType, UploadStatus
 
 
 class Media(Base):
-    """Физически загруженный файл: фото, видео или документ."""
+    """Физически загруженный файл: фото, видео или документ.
+
+    Хранит метаданные о загруженном медиафайле, включая путь к файлу,
+    миниатюру, MIME-тип, размер, хэш для дедупликации и временные метки.
+
+    Attributes:
+        id (int): Уникальный идентификатор медиа.
+        workspace_id (int): ID рабочего пространства.
+        owner_user_id (int): ID пользователя-владельца.
+        location_id (int | None): ID связанной локации.
+        media_type (MediaType): Тип медиа (PHOTO, VIDEO, DOCUMENT).
+        path (str): Путь к основному файлу.
+        thumb_path (str | None): Путь к миниатюре.
+        mime_type (str | None): MIME-тип файла.
+        size_bytes (int | None): Размер файла в байтах.
+        file_hash (str | None): Хэш файла для проверки дубликатов.
+        created_at (datetime): Время загрузки файла.
+        analyzed_at (datetime | None): Время последнего AI-анализа.
+
+    Relationships:
+        items: Связи с предметами через ItemMedia.
+    """
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspace.id"), nullable=False)
     owner_user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False)
@@ -31,7 +52,19 @@ class Media(Base):
 
 class ItemMedia(Base):
     __tablename__ = "item_media"
-    """Связь многие-ко-многим между предметами и медиа."""
+    """Связь многие-ко-многим между предметами и медиа.
+
+    Позволяет одному медиафайлу быть связанным с несколькими предметами
+    и наоборот. Используется для организации галерей и поиска.
+
+    Attributes:
+        item_id (int): ID предмета.
+        media_id (int): ID медиафайла.
+
+    Relationships:
+        item: Связанный предмет.
+        media: Связанный медиафайл.
+    """
 
     item_id: Mapped[int] = mapped_column(ForeignKey("item.id"), primary_key=True)
     media_id: Mapped[int] = mapped_column(ForeignKey("media.id"), primary_key=True)
@@ -46,6 +79,22 @@ class MediaUploadHistory(Base):
 
     Это read-model вокруг upload/AI-процесса: сюда складывается удобная для
     клиента выжимка, чтобы не собирать список из множества таблиц на лету.
+    Хранит статус загрузки, AI-анализа и summary найденных объектов.
+
+    Attributes:
+        id (int): Уникальный идентификатор записи.
+        media_id (int | None): ID медиафайла.
+        detection_id (int | None): ID связанной AI-детекции.
+        workspace_id (int): ID рабочего пространства.
+        owner_user_id (int): ID пользователя-владельца.
+        location_id (int | None): ID локации загрузки.
+        media_type (MediaType): Тип медиа.
+        status (UploadStatus): Статус загрузки.
+        source (str | None): Источник загрузки.
+        ai_status (str | None): Статус AI-анализа.
+        ai_summary (dict | None): Summary результатов AI в JSON.
+        path (str | None): Путь к файлу.
+        created_at (datetime): Время создания записи.
     """
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
