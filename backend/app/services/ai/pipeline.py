@@ -214,6 +214,7 @@ async def analyze_media(media_id: int, db: AsyncSession, hint_item_ids: list[int
         image_np = np.array(image)
 
         detections = detect_objects(image_np)
+        # Если модель не нашла ничего, создаём единичную рамку по всему изображению.
         if not detections:
             # Даже если модель ничего не нашла, создаём общий bbox.
             # Так пользователь видит, что анализ состоялся, а не "пропал".
@@ -266,6 +267,7 @@ async def analyze_media(media_id: int, db: AsyncSession, hint_item_ids: list[int
             db.add(det_obj)
             await db.flush()
 
+            # Начинаем с хэш-кандидатов и добавляем временные подсказки.
             candidate_scores: dict[int, float] = dict(hash_candidates)
             for item_id in valid_hint_items:
                 candidate_scores[item_id] = max(candidate_scores.get(item_id, 0.0), HINT_CANDIDATE_SCORE)

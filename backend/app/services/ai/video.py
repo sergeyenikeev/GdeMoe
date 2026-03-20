@@ -88,6 +88,7 @@ async def analyze_video(
     if not path.exists():
         raise FileNotFoundError(f"Video file not found: {path}")
 
+    # Открываем видеофайл и проверяем, что его можно читать.
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
         raise RuntimeError("Cannot open video")
@@ -117,6 +118,7 @@ async def analyze_video(
     processed_frames = 0
     try:
         ok, frame = cap.read()
+        # Цикл идёт по кадрам до лимита, отбираем каждый `stride`-й.
         while ok and processed_frames < limit:
             if frame_idx % stride == 0:
                 # Кадр временно кладём на диск, чтобы переиспользовать
