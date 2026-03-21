@@ -63,6 +63,30 @@ async def _ensure_exists(db: AsyncSession, model, obj_id: int | None, label: str
         raise HTTPException(status_code=404, detail=f"{label} not found")
 
 
+async def _detection_workspace_id(db: AsyncSession, detection: AIDetection) -> int | None:
+    """Return workspace of the media attached to detection."""
+    result = await db.execute(select(Media.workspace_id).where(Media.id == detection.media_id))
+    return result.scalar_one_or_none()
+
+
+async def _ensure_same_workspace(
+    db: AsyncSession,
+    model,
+    obj_id: int | None,
+    label: str,
+    workspace_id: int | None,
+) -> None:
+    """Prevent cross-workspace links during AI review operations."""
+    if obj_id is None or workspace_id is None:
+        return
+    stmt = select(model.workspace_id).where(model.id == obj_id)
+    obj_workspace_id = (await db.execute(stmt)).scalar_one_or_none()
+    if obj_workspace_id is None:
+        raise HTTPException(status_code=404, detail=f"{label} not found")
+    if obj_workspace_id != workspace_id:
+        raise HTTPException(status_code=400, detail=f"{label} belongs to another workspace")
+
+
 async def _resolve_review_user_id(db: AsyncSession, detection: AIDetection) -> int | None:
     """Берёт владельца медиа как пользователя, принявшего решение по review.
 
@@ -235,8 +259,11 @@ async def accept_detection(
     detection = await db.get(AIDetection, detection_id)
     if detection is None:
         raise HTTPException(status_code=404, detail="Detection not found")
+    workspace_id = await _detection_workspace_id(db, detection)
     await _ensure_exists(db, Item, body.item_id, "Item")
     await _ensure_exists(db, Location, body.location_id, "Location")
+    await _ensure_same_workspace(db, Item, body.item_id, "Item", workspace_id)
+    await _ensure_same_workspace(db, Location, body.location_id, "Location", workspace_id)
     review_user_id = await _resolve_review_user_id(db, detection)
     detection.status = AIDetectionStatusEnum.DONE
     detection.completed_at = datetime.utcnow()
@@ -289,9 +316,12 @@ async def reject_detection(
     detection = await db.get(AIDetection, detection_id)
     if detection is None:
         raise HTTPException(status_code=404, detail="Detection not found")
+    workspace_id = await _detection_workspace_id(db, detection)
     if body:
         await _ensure_exists(db, Item, body.item_id, "Item")
         await _ensure_exists(db, Location, body.location_id, "Location")
+        await _ensure_same_workspace(db, Item, body.item_id, "Item", workspace_id)
+        await _ensure_same_workspace(db, Location, body.location_id, "Location", workspace_id)
     review_user_id = await _resolve_review_user_id(db, detection)
     detection.status = AIDetectionStatusEnum.FAILED
     detection.completed_at = datetime.utcnow()
@@ -389,13 +419,15 @@ async def update_detection_object(
     obj = await db.get(AIDetectionObject, object_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="Detection object not found")
+    parent = await db.get(AIDetection, obj.detection_id)
+    workspace_id = await _detection_workspace_id(db, parent) if parent else None
     changed = False
     if _field_was_provided(body, "item_id"):
-        await _ensure_exists(db, Item, body.item_id, "Item")
+        await _ensure_same_workspace(db, Item, body.item_id, "Item", workspace_id)
         obj.linked_item_id = body.item_id
         changed = True
     if _field_was_provided(body, "location_id"):
-        await _ensure_exists(db, Location, body.location_id, "Location")
+        await _ensure_same_workspace(db, Location, body.location_id, "Location", workspace_id)
         obj.linked_location_id = body.location_id
         changed = True
     if body.decision is not None:
@@ -405,7 +437,6 @@ async def update_detection_object(
         obj.decided_at = datetime.utcnow()
     await db.commit()
     await db.refresh(obj)
-    parent = await db.get(AIDetection, obj.detection_id)
     if parent:
         await _update_upload_history(db, parent)
     return _object_out(obj)

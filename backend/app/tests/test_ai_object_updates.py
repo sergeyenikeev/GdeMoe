@@ -48,6 +48,44 @@ async def _seed_detection_graph(session) -> int:
     return obj.id
 
 
+async def _seed_cross_workspace_graph(session) -> tuple[int, int]:
+    user1 = User(id=1, email="demo1@local", hashed_password="noop")
+    user2 = User(id=2, email="demo2@local", hashed_password="noop")
+    workspace1 = Workspace(id=1, name="Demo 1", owner_user_id=1)
+    workspace2 = Workspace(id=2, name="Demo 2", owner_user_id=2)
+    item = Item(id=2, workspace_id=2, owner_user_id=2, title="Other workspace item")
+    location = Location(id=2, workspace_id=2, name="Other shelf")
+    media = Media(
+        id=1,
+        workspace_id=1,
+        owner_user_id=1,
+        media_type=MediaType.PHOTO,
+        path="media/demo.jpg",
+    )
+    detection = AIDetection(id=1, media_id=1, status=AIDetectionStatus.PENDING, raw={"objects": []})
+    obj = AIDetectionObject(
+        id=1,
+        detection_id=1,
+        label="backpack",
+        confidence=0.95,
+        bbox={"x1": 0, "y1": 0, "x2": 10, "y2": 10},
+        decision=AIDetectionDecision.PENDING,
+    )
+    history = MediaUploadHistory(
+        id=1,
+        media_id=1,
+        workspace_id=1,
+        owner_user_id=1,
+        media_type=MediaType.PHOTO,
+        status=UploadStatus.SUCCESS,
+        ai_status=AIDetectionStatus.PENDING.value,
+        path="media/demo.jpg",
+    )
+    session.add_all([user1, user2, workspace1, workspace2, item, location, media, detection, obj, history])
+    await session.commit()
+    return detection.id, obj.id
+
+
 @pytest.mark.anyio
 async def test_patch_object_can_clear_links_with_explicit_null(test_app):
     app, session_factory, _, _ = test_app
@@ -94,3 +132,35 @@ async def test_patch_object_keeps_links_when_fields_are_omitted(test_app):
     assert payload["decision"] == AIDetectionDecision.REJECTED.value
     assert payload["linked_item_id"] == 1
     assert payload["linked_location_id"] == 1
+
+
+@pytest.mark.anyio
+async def test_patch_object_rejects_cross_workspace_item_link(test_app):
+    app, session_factory, _, _ = test_app
+    async with session_factory() as session:
+        _, object_id = await _seed_cross_workspace_graph(session)
+
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        resp = await client.patch(
+            f"/api/v1/ai/objects/{object_id}",
+            json={"item_id": 2},
+        )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Item belongs to another workspace"
+
+
+@pytest.mark.anyio
+async def test_accept_detection_rejects_cross_workspace_location_link(test_app):
+    app, session_factory, _, _ = test_app
+    async with session_factory() as session:
+        detection_id, _ = await _seed_cross_workspace_graph(session)
+
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        resp = await client.post(
+            f"/api/v1/ai/detections/{detection_id}/accept",
+            json={"location_id": 2},
+        )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Location belongs to another workspace"
