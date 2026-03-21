@@ -61,12 +61,6 @@ async def _ensure_exists(db: AsyncSession, model, obj_id: int | None, label: str
     exists = (await db.execute(stmt)).scalar_one_or_none()
     if exists is None:
         raise HTTPException(status_code=404, detail=f"{label} not found")
-    if obj_id is None:
-        return
-    stmt = select(model.id).where(model.id == obj_id)
-    exists = (await db.execute(stmt)).scalar_one_or_none()
-    if exists is None:
-        raise HTTPException(status_code=404, detail=f"{label} not found")
 
 
 async def _resolve_review_user_id(db: AsyncSession, detection: AIDetection) -> int | None:
@@ -84,8 +78,11 @@ async def _resolve_review_user_id(db: AsyncSession, detection: AIDetection) -> i
     """
     result = await db.execute(select(Media.owner_user_id).where(Media.id == detection.media_id))
     return result.scalar_one_or_none()
-    result = await db.execute(select(Media.owner_user_id).where(Media.id == detection.media_id))
-    return result.scalar_one_or_none()
+
+
+def _field_was_provided(body: AIDetectionObjectUpdate, field_name: str) -> bool:
+    """Differentiate omitted PATCH fields from explicit nulls."""
+    return field_name in body.model_fields_set
 
 
 @router.post("/analyze")
@@ -392,15 +389,20 @@ async def update_detection_object(
     obj = await db.get(AIDetectionObject, object_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="Detection object not found")
-    await _ensure_exists(db, Item, body.item_id, "Item")
-    await _ensure_exists(db, Location, body.location_id, "Location")
-    if body.item_id is not None:
+    changed = False
+    if _field_was_provided(body, "item_id"):
+        await _ensure_exists(db, Item, body.item_id, "Item")
         obj.linked_item_id = body.item_id
-    if body.location_id is not None:
+        changed = True
+    if _field_was_provided(body, "location_id"):
+        await _ensure_exists(db, Location, body.location_id, "Location")
         obj.linked_location_id = body.location_id
+        changed = True
     if body.decision is not None:
         obj.decision = body.decision
-    obj.decided_at = datetime.utcnow()
+        changed = True
+    if changed:
+        obj.decided_at = datetime.utcnow()
     await db.commit()
     await db.refresh(obj)
     parent = await db.get(AIDetection, obj.detection_id)
