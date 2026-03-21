@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Iterable, Literal
 
 import aiofiles
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -684,7 +684,7 @@ async def upload_media(
 @router.get("/history", response_model=list[MediaUploadHistoryOut])
 async def upload_history(
     owner_user_id: int | None = None,
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=200),
     status: UploadStatus | None = None,
     source: str | None = None,
     location_id: int | None = None,
@@ -739,7 +739,11 @@ async def upload_history(
 
 
 @router.get("/recent")
-async def recent_media(scope: str = "public", limit: int = 20, db: AsyncSession = Depends(get_db)):
+async def recent_media(
+    scope: str = "public",
+    limit: int = Query(default=20, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
     """Список последних медиа для быстрых превью и отладки."""
     stmt = (
         select(Media)
