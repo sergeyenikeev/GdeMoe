@@ -41,3 +41,13 @@ async def test_recent_media_rejects_too_large_limit(test_app):
         resp = await client.get("/api/v1/media/recent", params={"limit": 500})
 
     assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_recent_media_rejects_invalid_scope(test_app):
+    app, _, _, _ = test_app
+
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        resp = await client.get("/api/v1/media/recent", params={"scope": "all"})
+
+    assert resp.status_code == 422

@@ -88,7 +88,7 @@ async def _load_item_media_embeddings(
         .where(Media.media_type == MediaType.PHOTO)
         .order_by(Media.id.desc())
     )
-    if location_id:
+    if location_id is not None:
         stmt = stmt.where(Item.location_id == location_id)
     rows = (await db.execute(stmt)).all()
     embeddings: list[tuple[int, np.ndarray]] = []
@@ -232,7 +232,7 @@ async def analyze_media(media_id: int, db: AsyncSession, hint_item_ids: list[int
                 .where(Media.file_hash == media.file_hash)
                 .where(Media.id != media.id)
             )
-            if media.location_id:
+            if media.location_id is not None:
                 stmt = stmt.where(Item.location_id == media.location_id)
             for row in (await db.execute(stmt)).all():
                 hash_candidates[row[0]] = 0.99
