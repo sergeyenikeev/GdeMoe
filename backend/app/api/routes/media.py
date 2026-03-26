@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Iterable, Literal
 
 import aiofiles
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -258,6 +258,7 @@ def _serialize_media(m: Media, det: AIDetection | None, objects: Iterable[AIDete
     Raises:
         Нет исключений.
     """
+    scope_prefix = "private/" if m.path.startswith("private/") else ""
     return {
         "id": m.id,
         "path": m.path,
@@ -579,7 +580,7 @@ async def upload_media(
         await db.commit()
         await db.refresh(media)
 
-        if item_id is not None:
+        if item_id:
             existing = await db.execute(
                 select(ItemMedia).where(ItemMedia.item_id == item_id, ItemMedia.media_id == media.id)
             )
@@ -683,7 +684,7 @@ async def upload_media(
 @router.get("/history", response_model=list[MediaUploadHistoryOut])
 async def upload_history(
     owner_user_id: int | None = None,
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = 50,
     status: UploadStatus | None = None,
     source: str | None = None,
     location_id: int | None = None,
@@ -692,13 +693,13 @@ async def upload_history(
     """Возвращает журнал загрузок в удобном для mobile виде."""
     logger.info("media.history.list owner=%s limit=%s", owner_user_id, limit)
     stmt = select(MediaUploadHistory).order_by(MediaUploadHistory.created_at.desc()).limit(limit)
-    if owner_user_id is not None:
+    if owner_user_id:
         stmt = stmt.where(MediaUploadHistory.owner_user_id == owner_user_id)
     if status:
         stmt = stmt.where(MediaUploadHistory.status == status)
     if source:
         stmt = stmt.where(MediaUploadHistory.source == source)
-    if location_id is not None:
+    if location_id:
         stmt = stmt.where(MediaUploadHistory.location_id == location_id)
     rows = (await db.execute(stmt)).scalars().all()
     result: list[MediaUploadHistoryOut] = []
@@ -738,11 +739,7 @@ async def upload_history(
 
 
 @router.get("/recent")
-async def recent_media(
-    scope: Literal["public", "private"] = "public",
-    limit: int = Query(default=20, ge=1, le=200),
-    db: AsyncSession = Depends(get_db),
-):
+async def recent_media(scope: str = "public", limit: int = 20, db: AsyncSession = Depends(get_db)):
     """Список последних медиа для быстрых превью и отладки."""
     stmt = (
         select(Media)
