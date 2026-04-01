@@ -439,7 +439,7 @@ async def update_detection_object(
     await db.refresh(obj)
     if parent:
         await _update_upload_history(db, parent)
-    return _object_out(obj)
+    return await _load_detection_object(db, object_id)
 
 
 async def _load_detection(db: AsyncSession, detection_id: int) -> AIDetectionOut:
@@ -474,6 +474,16 @@ async def _load_detection(db: AsyncSession, detection_id: int) -> AIDetectionOut
         thumb_path=det.media.thumb_path if det.media else None,
         objects=[_object_out(obj) for obj in det.objects],
     )
+
+
+async def _load_detection_object(db: AsyncSession, object_id: int) -> AIDetectionObjectOut:
+    """Load one detection object with eager-loaded candidates for PATCH responses."""
+    result = await db.execute(
+        select(AIDetectionObject)
+        .where(AIDetectionObject.id == object_id)
+        .options(selectinload(AIDetectionObject.candidates))
+    )
+    return _object_out(result.scalar_one())
 
 
 def _object_out(obj: AIDetectionObject) -> AIDetectionObjectOut:

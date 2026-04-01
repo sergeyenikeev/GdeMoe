@@ -216,3 +216,28 @@ httpx==0.26.0 – асинхронный HTTP-клиент для вызовов
 aiofiles==23.2.1 – асинхронные файловые операции (чтение/запись) для работы с загруженными медиа, чтобы не блокировать событийный цикл.
 pypdf==3.17.0 – чтение/манипуляции PDF (извлечение текста или метаданных), если сервис работает с документами.
 aiosqlite==0.20.0 – асинхронный драйвер SQLite; может использоваться для тестов, кэширования или локального сохранения при необходимости.
+
+API/HTTP
+
+FastAPI стартует приложение, подключает роутеры и принимает UploadFile/File/Form, поэтому python-multipart нужен для парсинга multipart-запросов, а мы используем его прямо в media-маршрутах. citebackend/app/main.py:10-19backend/app/api/routes/media.py:16-100
+uvicorn запускает ASGI-сервер и его логгер используется в main, а команды в Docker/Docker Compose запускают именно uvicorn app.main:app. citebackend/docker/Dockerfile:24backend/docker/docker-compose.yml:12backend/app/main.py:19
+aiofiles сохраняет загрузки без блокировки (в API загрузки медиа и чеков). citebackend/app/api/routes/media.py:15,91-120backend/app/api/routes/imports.py:9,82-88
+httpx делает асинхронные вызовы к внешнему AI-сервису и к веб-ресурсам в product_fetcher. citebackend/app/api/routes/ai.py:7,134-150backend/app/services/imports/product_fetcher.py:8,115
+Конфигурация и безопасность
+
+pydantic (BaseModel + EmailStr) вместе с email-validator проверяют email/password-пейлоады (LoginRequest). citebackend/app/schemas/auth.py:4-12
+pydantic-settings настраивает Settings и python-dotenv обеспечивает чтение из .env без дополнительных шаблонов. citebackend/app/core/config.py:10-33
+python-jose генерирует JWT в core/security, а passlib[bcrypt] хеширует/проверяет пароли в маршрутах auth. citebackend/app/core/security.py:6-30backend/app/api/routes/auth.py:8-63
+База данных
+
+SQLAlchemy описывает модели и предоставляет асинхронную сессию, а asyncpg — драйвер строк подключения postgresql+asyncpg. citebackend/app/db/session.py:1-14backend/app/models/user.py:1-46backend/app/core/config.py:103-114
+alembic управляет миграциями (env.py настраивает SQLAlchemy URL, 0005… добавляет новые колонки), psycopg2-binary просто закреплён в requirements.txt для синхронных утилит, которые могут по‑прежнему требовать его. citebackend/alembic/env.py:1-38backend/alembic/versions/0005_location_photo_and_history_location.py:1-32backend/requirements.txt:1-26
+aiosqlite используется в pytest-фикстуре для создания временной SQLite базы. citebackend/app/tests/conftest.py:7-26
+Медиа и ИИ
+
+Pillow делает миниатюры в media и загружает изображения для пайплайна, а pillow-heif регистрирует HEIF/HEIC-открыватели, чтобы использовать те же API. citebackend/app/api/routes/media.py:137-180backend/app/services/ai/pipeline.py:15-50
+numpy работает с массивами изображений в пайплайне и fallback-детекторе (нормализация эмбеддингов, подсчёт контуров). citebackend/app/services/ai/pipeline.py:15-70backend/app/services/ai/detector.py:3-105
+torch, open_clip_torch и torchvision подтягиваются в embeddings: open_clip.create_model_and_transforms возвращает preprocess, который опирается на torchvision, а сама модель инференсит через PyTorch. citebackend/app/services/ai/embeddings.py:12-66
+ultralytics грузит YOLO-веса, а при их отсутствии или для видео/медиа API происходит fallback на opencv-python-headless (детекция контуров, кадры видео). citebackend/app/services/ai/detector.py:26-105backend/app/api/routes/media.py:163-179
+pypdf извлекает текст из загружаемых чеков, чтобы можно было парсить суммы/магазины. citebackend/app/api/routes/imports.py:60-110
+
